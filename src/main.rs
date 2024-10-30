@@ -1,12 +1,20 @@
 use clap::Parser;
-use motif::Motif;
+use motif::{find_motif_indices_in_contig, Motif};
 use polars::{
+    datatypes::DataType,
     error::PolarsResult,
+    frame::DataFrame,
     lazy::frame::{LazyCsvReader, LazyFileListReader, LazyFrame},
+    prelude::*,
 };
+use rayon::prelude::*;
 use seq_io::fasta::{Reader, Record};
-use std::str;
+use std::{
+    borrow::Borrow,
+    sync::{Arc, Mutex},
+};
 use std::{collections::HashMap, path::Path};
+use std::{default, str};
 
 type ContigMap = HashMap<String, String>;
 
@@ -20,7 +28,7 @@ struct Args {
     assembly: String,
 
     #[arg(short, long, default_value_t = 1)]
-    threads: u8,
+    threads: usize,
 
     #[arg(short, long, required = true, num_args(1..))]
     motifs: Option<Vec<String>>,
@@ -46,7 +54,9 @@ fn load_pileup_lazy<P: AsRef<Path>>(path: P) -> PolarsResult<LazyFrame> {
         "N_modified",
         "N_canonical",
         "N_other_mod",
+        "N_delete",
         "N_fail",
+        "N_diff",
         "N_nocall",
     ];
 
@@ -92,18 +102,127 @@ fn create_motifs(motifs: Vec<String>) -> Vec<Motif> {
     motifs_as_struct
 }
 
-// fn calculate_contig_read_methylation_pattern(
-//     contigs:
-// ) {
+fn calculate_contig_read_methylation_pattern(
+    contigs: ContigMap,
+    pileup: DataFrame,
+    motifs: Vec<Motif>,
+    num_threads: usize,
+) -> DataFrame {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build_global()
+        .expect("Failed to build thread pool");
 
-// }
+    // let read_methylation_mutex = Arc::new(Mutex::new(DataFrame::empty()));
 
-fn main() -> PolarsResult<()> {
+    let motifs = Arc::new(motifs);
+    let pileup = Arc::new(pileup.lazy());
+
+    let results: Vec<LazyFrame> = contigs
+        .par_iter()
+        .map(|(contig_id, contig_seq)| {
+            let subpileup = pileup
+                .as_ref()
+                .clone()
+                .filter(col("contig").eq(lit(contig_id.clone())))
+                .collect()
+                .unwrap();
+
+            // let mut local_read_methylation_df = DataFrame::empty();
+            let f1: Field = Field::new("contig".into(), DataType::String);
+            let f2: Field = Field::new("median".into(), DataType::Float64);
+            let f3: Field = Field::new("N_motif_obs".into(), DataType::UInt32);
+            let f4: Field = Field::new("motif".into(), DataType::String);
+            let f5: Field = Field::new("mod_type".into(), DataType::String);
+            let f6: Field = Field::new("mod_position".into(), DataType::Int32);
+
+            let schema = Schema::from_iter(vec![f1, f2, f3, f4, f5, f6]);
+            let mut local_read_methylation_df = DataFrame::empty_with_schema(&schema);
+
+            for motif in motifs.iter() {
+                let fwd_indices = find_motif_indices_in_contig(&contig_seq, &motif);
+
+                let rev_indices =
+                    find_motif_indices_in_contig(&contig_seq, &motif.reverse_complement());
+
+                let p_fwd = subpileup
+                    .clone()
+                    .lazy()
+                    .filter(
+                        col("strand")
+                            .eq(lit("+"))
+                            .and(col("mod_type").eq(lit(motif.mod_type.clone())))
+                            .and(
+                                col("start").is_in(lit(Series::new("start".into(), &fwd_indices))),
+                            ),
+                    )
+                    .collect()
+                    .unwrap();
+
+                let p_rev = subpileup
+                    .clone()
+                    .lazy()
+                    .filter(
+                        col("strand")
+                            .eq(lit("-"))
+                            .and(col("mod_type").eq(lit(motif.mod_type.clone())))
+                            .and(
+                                col("start").is_in(lit(Series::new("start".into(), &rev_indices))),
+                            ),
+                    )
+                    .collect()
+                    .unwrap();
+
+                let p_con = concat(
+                    [p_fwd.clone().lazy(), p_rev.clone().lazy()],
+                    UnionArgs::default(),
+                )
+                .unwrap()
+                .collect()
+                .unwrap();
+
+                let p_read_methylation = p_con
+                    .lazy()
+                    .with_columns([(col("N_modified") / col("N_valid_cov")).alias("motif_mean")])
+                    .group_by([col("contig")])
+                    .agg([
+                        (col("motif_mean").median()).alias("median"),
+                        (col("contig").count()).alias("N_motif_obs"),
+                    ])
+                    .with_columns([
+                        (lit(motif.sequence.clone())).alias("motif"),
+                        (lit(motif.mod_type.clone())).alias("mod_type"),
+                        (lit(motif.mod_position.clone() as i8)).alias("mod_position"),
+                    ])
+                    .collect()
+                    .unwrap();
+                local_read_methylation_df = concat(
+                    [local_read_methylation_df.lazy(), p_read_methylation.lazy()],
+                    UnionArgs::default(),
+                )
+                .unwrap()
+                .collect()
+                .unwrap();
+            }
+
+            local_read_methylation_df.lazy()
+        })
+        .collect();
+
+    let read_methylation_df = concat(&results, UnionArgs::default())
+        .unwrap()
+        .collect()
+        .unwrap();
+
+    read_methylation_df
+}
+
+fn main() {
     let args = Args::parse();
 
-    let lf_pileup = load_pileup_lazy(&args.pileup)?;
+    let lf_pileup = load_pileup_lazy(&args.pileup).expect("Error loading pileup");
 
-    let contigs = load_contigs(&args.assembly);
+    let contigs = load_contigs(&args.assembly).expect("Error loading assembly");
 
     let motifs = match args.motifs {
         Some(motifs) => {
@@ -115,7 +234,18 @@ fn main() -> PolarsResult<()> {
 
     let motifs = create_motifs(motifs);
 
-    // let pileup = lf_pileup.collect()?;
+    let pileup = lf_pileup
+        .select([
+            col("contig"),
+            col("mod_type"),
+            col("strand"),
+            col("start"),
+            col("N_valid_cov"),
+            col("N_modified"),
+        ])
+        .collect()
+        .expect("Error collecting pileup");
 
-    Ok(())
+    let contig_methylation_pattern =
+        calculate_contig_read_methylation_pattern(contigs, pileup, motifs, args.threads);
 }
