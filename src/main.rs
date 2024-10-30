@@ -1,5 +1,6 @@
 use clap::Parser;
 use core::panic;
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use motif::{find_motif_indices_in_contig, Motif};
 use polars::{
     datatypes::DataType,
@@ -10,7 +11,14 @@ use polars::{
 };
 use rayon::prelude::*;
 use seq_io::fasta::{Reader, Record};
-use std::{collections::HashMap, fs, path::Path, process, str, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::Write,
+    fs,
+    path::Path,
+    process, str,
+    sync::{Arc, Mutex},
+};
 
 type ContigMap = HashMap<String, String>;
 
@@ -112,7 +120,20 @@ fn calculate_contig_read_methylation_pattern(
         .build_global()
         .expect("Failed to build thread pool");
 
-    // let read_methylation_mutex = Arc::new(Mutex::new(DataFrame::empty()));
+    let tasks = contigs.keys().cloned().collect::<Vec<String>>().len() as u64;
+    let pb = ProgressBar::new(tasks);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
+        )
+        .unwrap()
+        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
+            write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
+        })
+        .progress_chars("#>-"),
+    );
+
+    let pb_arcmut = Arc::new(Mutex::new(pb));
 
     let motifs = Arc::new(motifs);
     let pileup = Arc::new(pileup.lazy());
@@ -204,6 +225,11 @@ fn calculate_contig_read_methylation_pattern(
                 .unwrap();
             }
 
+            {
+                let pb = pb_arcmut.lock().unwrap();
+                pb.inc(1);
+            }
+
             local_read_methylation_df.lazy()
         })
         .collect();
@@ -213,10 +239,16 @@ fn calculate_contig_read_methylation_pattern(
         .collect()
         .unwrap();
 
+    pb_arcmut
+        .lock()
+        .unwrap()
+        .finish_with_message("Finished processing contigs");
+
     read_methylation_df
 }
 
 fn main() {
+    // let guard = pprof::ProfilerGuard::new(100).unwrap();
     let args = Args::parse();
 
     let outpath = Path::new(&args.output);
@@ -237,10 +269,6 @@ fn main() {
         }
     }
 
-    let lf_pileup = load_pileup_lazy(&args.pileup).expect("Error loading pileup");
-
-    let contigs = load_contigs(&args.assembly).expect("Error loading assembly");
-
     let motifs = match args.motifs {
         Some(motifs) => {
             println!("Motifs loaded");
@@ -251,6 +279,11 @@ fn main() {
 
     let motifs = create_motifs(motifs);
 
+    let lf_pileup = load_pileup_lazy(&args.pileup).expect("Error loading pileup");
+
+    let contigs = load_contigs(&args.assembly).expect("Error loading assembly");
+    let contig_ids: Vec<String> = contigs.keys().cloned().collect();
+
     let pileup = lf_pileup
         .select([
             col("contig"),
@@ -260,7 +293,11 @@ fn main() {
             col("N_valid_cov"),
             col("N_modified"),
         ])
-        .filter(col("N_valid_cov").gt_eq(lit(args.min_valid_read_coverage as i64)))
+        .filter(
+            col("N_valid_cov")
+                .gt_eq(lit(args.min_valid_read_coverage as i64))
+                .and(col("contig").is_in(lit(Series::new("contig".into(), &contig_ids)))),
+        )
         .collect()
         .expect("Error collecting pileup");
 
@@ -279,4 +316,11 @@ fn main() {
             println!("Error writing tsv file: {:?}", e);
         }
     };
+    // if let Ok(report) = guard.report().build() {
+    //     use std::fs::File;
+    //     use std::io::Write;
+
+    //     let mut file = File::create("flamegraph.svg").unwrap();
+    //     report.flamegraph(&mut file).unwrap();
+    // }
 }

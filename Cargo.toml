@@ -12,3 +12,6 @@ polars = { version = "0.44.0", features = ["lazy","is_in"] }
 seq_io = "0.3.2"
 motif = { path = "motif"}
 rayon = "1.10.0"
+pprof = { version = "0.13.0", features = ["flamegraph"] }
+indicatif = "0.17.8"
+
