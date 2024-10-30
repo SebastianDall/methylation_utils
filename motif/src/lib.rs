@@ -1,3 +1,19 @@
+use phf::phf_map;
+
+static IUPAC_MAPPING: phf::Map<&'static str, &'static str> = phf_map! {
+    "R" => "AG",
+    "Y" => "CT",
+    "S" => "CG",
+    "W" => "AT",
+    "K" => "GT",
+    "M" => "AC",
+    "B" => "CGT",
+    "D" => "AGT",
+    "H" => "ACT",
+    "V" => "ACG",
+    "N" => ".",
+};
+
 pub struct Motif {
     pub sequence: String,
     pub mod_type: String,
@@ -20,6 +36,18 @@ impl Motif {
             mod_position: self.sequence.len() as u8 - self.mod_position - 1,
         }
     }
+
+    pub fn to_regex(&self) -> String {
+        self.sequence
+            .chars()
+            .map(|c| match IUPAC_MAPPING.get(&c.to_string().as_str()) {
+                Some(s) => {
+                    format!("[{}]", s)
+                }
+                None => c.to_string(),
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -40,5 +68,14 @@ mod tests {
         assert_eq!(reversed_complement_motif.sequence, "CTAG");
         assert_eq!(reversed_complement_motif.mod_position, 2);
         assert_eq!(reversed_complement_motif.mod_type, motif.mod_type);
+    }
+
+    #[test]
+    fn test_to_regex() {
+        let motif1 = Motif::new("GATC", "m", 3);
+        let motif2 = Motif::new("RGATCY", "m", 4);
+
+        assert_eq!(motif1.to_regex(), "GATC");
+        assert_eq!(motif2.to_regex(), "[AG]GATC[CT]");
     }
 }
