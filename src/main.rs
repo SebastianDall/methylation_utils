@@ -1,4 +1,5 @@
 use clap::Parser;
+use core::panic;
 use motif::{find_motif_indices_in_contig, Motif};
 use polars::{
     datatypes::DataType,
@@ -9,12 +10,7 @@ use polars::{
 };
 use rayon::prelude::*;
 use seq_io::fasta::{Reader, Record};
-use std::{
-    borrow::Borrow,
-    sync::{Arc, Mutex},
-};
-use std::{collections::HashMap, path::Path};
-use std::{default, str};
+use std::{collections::HashMap, fs, path::Path, process, str, sync::Arc};
 
 type ContigMap = HashMap<String, String>;
 
@@ -26,6 +22,9 @@ struct Args {
 
     #[arg(short, long, required = true)]
     assembly: String,
+
+    #[arg(short, long, required = true)]
+    output: String,
 
     #[arg(short, long, default_value_t = 1)]
     threads: usize,
@@ -220,6 +219,24 @@ fn calculate_contig_read_methylation_pattern(
 fn main() {
     let args = Args::parse();
 
+    let outpath = Path::new(&args.output);
+
+    match outpath.extension() {
+        Some(ext) if ext == "tsv" => {
+            if let Some(parent) = outpath.parent() {
+                fs::create_dir_all(parent).expect("Cannot create output dir");
+            }
+        }
+        Some(ext) => {
+            println!("Incorrect file extension: {:#?}. Should be tsv", ext);
+            process::exit(1);
+        }
+        None => {
+            println!("No filename provided");
+            process::exit(1);
+        }
+    }
+
     let lf_pileup = load_pileup_lazy(&args.pileup).expect("Error loading pileup");
 
     let contigs = load_contigs(&args.assembly).expect("Error loading assembly");
@@ -243,9 +260,23 @@ fn main() {
             col("N_valid_cov"),
             col("N_modified"),
         ])
+        .filter(col("N_valid_cov").gt_eq(lit(args.min_valid_read_coverage as i64)))
         .collect()
         .expect("Error collecting pileup");
 
-    let contig_methylation_pattern =
+    let mut contig_methylation_pattern =
         calculate_contig_read_methylation_pattern(contigs, pileup, motifs, args.threads);
+
+    match std::fs::File::create(outpath) {
+        Ok(mut f) => {
+            CsvWriter::new(&mut f)
+                .include_header(true)
+                .with_separator(b'\t')
+                .finish(&mut contig_methylation_pattern)
+                .unwrap();
+        }
+        Err(e) => {
+            println!("Error writing tsv file: {:?}", e);
+        }
+    };
 }
