@@ -1,4 +1,5 @@
 use phf::phf_map;
+use regex::Regex;
 
 static IUPAC_MAPPING: phf::Map<&'static str, &'static str> = phf_map! {
     "R" => "AG",
@@ -50,6 +51,18 @@ impl Motif {
     }
 }
 
+pub fn find_motif_indices_in_contig(contig: &str, motif: &Motif) -> Vec<u32> {
+    let regex_str = motif.to_regex();
+    let re = Regex::new(&regex_str).expect("Expected regex patter");
+
+    let indices = re
+        .find_iter(contig)
+        .map(|m| m.start() as u32 + motif.mod_position as u32)
+        .collect();
+
+    indices
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +90,15 @@ mod tests {
 
         assert_eq!(motif1.to_regex(), "GATC");
         assert_eq!(motif2.to_regex(), "[AG]GATC[CT]");
+    }
+
+    #[test]
+    fn test_find_motif_indices_in_contig() {
+        let contig = "GGATCTCCATGATC".to_string();
+        let motif1 = Motif::new("GATC", "m", 3);
+        let motif2 = Motif::new("RGATCY", "m", 4);
+
+        assert_eq!(find_motif_indices_in_contig(&contig, &motif1), vec![4, 13]);
+        assert_eq!(find_motif_indices_in_contig(&contig, &motif2), vec![4]);
     }
 }
