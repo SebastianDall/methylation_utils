@@ -3,4 +3,11 @@ name = "methylation_utils"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = ["motif", "."]
+
 [dependencies]
+clap = { version = "4.5.20", features = ["derive"] }
+polars = { version = "0.44.0", features = ["lazy"] }
+seq_io = "0.3.2"
+motif = { path = "motif"}
