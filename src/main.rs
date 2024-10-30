@@ -3,10 +3,12 @@ use motif::Motif;
 use polars::{
     error::PolarsResult,
     lazy::frame::{LazyCsvReader, LazyFileListReader, LazyFrame},
-    prelude::*,
 };
-use seq_io::fastq::{Reader, Record};
-use std::path::Path;
+use seq_io::fasta::{Reader, Record};
+use std::str;
+use std::{collections::HashMap, path::Path};
+
+type ContigMap = HashMap<String, String>;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -57,6 +59,21 @@ fn load_pileup_lazy<P: AsRef<Path>>(path: P) -> PolarsResult<LazyFrame> {
     Ok(lf_pileup)
 }
 
+fn load_contigs<P: AsRef<Path>>(path: P) -> Result<ContigMap, Box<dyn std::error::Error>> {
+    let mut fasta_reader = Reader::from_path(path).unwrap();
+    let mut contigs = ContigMap::new();
+
+    while let Some(record_result) = fasta_reader.next() {
+        let record = record_result?;
+
+        let id = record.id()?.to_string();
+        let seq = str::from_utf8(record.seq())?.to_string();
+
+        contigs.insert(id, seq);
+    }
+    Ok(contigs)
+}
+
 fn create_motifs(motifs: Vec<String>) -> Vec<Motif> {
     let mut motifs_as_struct = Vec::new();
 
@@ -75,12 +92,18 @@ fn create_motifs(motifs: Vec<String>) -> Vec<Motif> {
     motifs_as_struct
 }
 
+// fn calculate_contig_read_methylation_pattern(
+//     contigs:
+// ) {
+
+// }
+
 fn main() -> PolarsResult<()> {
     let args = Args::parse();
 
     let lf_pileup = load_pileup_lazy(&args.pileup)?;
 
-    let mut fasta_reader = Reader::from_path(&args.assembly).unwrap();
+    let contigs = load_contigs(&args.assembly);
 
     let motifs = match args.motifs {
         Some(motifs) => {
