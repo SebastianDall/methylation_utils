@@ -123,14 +123,6 @@ fn create_subpileups(
                         );
                     }
                 }
-                // if let AnyValue::String(contig_id_str) = contig_id_anyvalue {
-                //     subpileups_map.insert(contig_id_str.to_string(), df);
-                // } else {
-                //     eprintln!(
-                //         "Expected String value for contig ID, found {:?}",
-                //         contig_id_anyvalue
-                //     );
-                // }
             } else {
                 eprintln!("Failed to get value from contig series");
             }
