@@ -1,7 +1,8 @@
 on:
   push:
-    tags:
-      - "v*"
+    branches: master
+    # tags:
+    #   - "v*"
 
      
 jobs:
@@ -10,26 +11,26 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest] # [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             extension: ""
-          - os: windows-latest
-            target: x86_64-pc-windows-gnu
-            extension: ".exe"
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            extension: ""
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-gnu
+          #   extension: ".exe"
+          # - os: macos-latest
+          #   target: x86_64-apple-darwin
+          #   extension: ""
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Rust
-        uses: actions-rs/toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: stable
+          # toolchain: stable
           target: ${{ matrix.target }}
           override: true
 
@@ -48,17 +49,17 @@ jobs:
 
     steps:
       - name: Download Binaries
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: methylation_utils
       - name: Create github release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}  # Use the tag as the release version
           release_name: "Release ${{ github.ref_name }}"
           files: |
             methylation_utils
-            methylation_utils.exe
-            methylation_utils_macos
+            # methylation_utils.exe
+            # methylation_utils_macos
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
