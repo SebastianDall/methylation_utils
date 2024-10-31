@@ -109,14 +109,28 @@ fn create_subpileups(
     for df in subpileups {
         if let Ok(contig_series) = df.column("contig") {
             if let Ok(contig_id_anyvalue) = contig_series.get(0) {
-                if let AnyValue::String(contig_id_str) = contig_id_anyvalue {
-                    subpileups_map.insert(contig_id_str.to_string(), df);
-                } else {
-                    eprintln!(
-                        "Expected String value for contig ID, found {:?}",
-                        contig_id_anyvalue
-                    );
+                match contig_id_anyvalue {
+                    AnyValue::String(contig_id_str) => {
+                        subpileups_map.insert(contig_id_str.to_string(), df);
+                    }
+                    AnyValue::StringOwned(contig_id_str) => {
+                        subpileups_map.insert(contig_id_str.to_string(), df);
+                    }
+                    _ => {
+                        eprintln!(
+                            "Expected String value for contig ID, found {:?}",
+                            contig_id_anyvalue
+                        );
+                    }
                 }
+                // if let AnyValue::String(contig_id_str) = contig_id_anyvalue {
+                //     subpileups_map.insert(contig_id_str.to_string(), df);
+                // } else {
+                //     eprintln!(
+                //         "Expected String value for contig ID, found {:?}",
+                //         contig_id_anyvalue
+                //     );
+                // }
             } else {
                 eprintln!("Failed to get value from contig series");
             }
