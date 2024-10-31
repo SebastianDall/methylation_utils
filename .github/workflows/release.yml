@@ -1,0 +1,63 @@
+on:
+  push:
+    tags:
+      - "v*"
+
+release:
+  runs-on: ubuntu-latest
+  needs: build-and-release
+
+  steps:
+    - name: Download Binaries
+      uses: actions/download-artifact@v3
+      with:
+        name: methylation_utils
+    - name: Create github release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}  # Use the tag as the release version
+        release_name: "Release ${{ github.ref_name }}"
+        files: |
+          methylation_utils
+          methylation_utils.exe
+          methylation_utils_macos
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+     
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest  
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            extension: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-gnu
+            extension: ".exe"
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            extension: ""
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Build the binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: methylation_utils${{ matrix.extension }}
+          path: target/${{ matrix.target }}/release/methylation_utils${{ matrix.extension }}
