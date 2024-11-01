@@ -2,7 +2,11 @@
 name = "methylation_utils"
 version = "0.1.0"
 edition = "2021"
+authors = ["semoda@bio.aau.dk"]
 
+description = "Cli tool for fast lookup in pileup for motif methylation"
+license = "MIT" 
+repository = "https://github.com/SebastianDall/methylation_utils"
 [workspace]
 members = ["motif", "."]
 
