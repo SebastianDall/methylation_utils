@@ -15,6 +15,27 @@ static IUPAC_MAPPING: phf::Map<&'static str, &'static str> = phf_map! {
     "N" => ".",
 };
 
+static COMPLEMENT_BASE: phf::Map<&'static str, &'static str> = phf_map! {
+    "A" => "T",
+    "T" => "A",
+    "G" => "C",
+    "C" => "G",
+    "R" => "Y",
+    "Y" => "R",
+    "S" => "S",
+    "W" => "W",
+    "K" => "M",
+    "M" => "K",
+    "B" => "V",
+    "D" => "H",
+    "H" => "D",
+    "V" => "B",
+    "." => ".",
+    "[" => "]",
+    "]" => "[",
+    "N" => "N",
+};
+
 pub struct Motif {
     pub sequence: String,
     pub mod_type: String,
@@ -32,7 +53,16 @@ impl Motif {
 
     pub fn reverse_complement(&self) -> Self {
         Self {
-            sequence: (&self.sequence.chars().rev().collect::<String>()).to_string(),
+            // sequence: (&self.sequence.chars().rev().collect::<String>()).to_string(),
+            sequence: self
+                .sequence
+                .chars()
+                .rev()
+                .map(|c| match COMPLEMENT_BASE.get(&c.to_string().as_str()) {
+                    Some(s) => s.to_string(),
+                    None => c.to_string(),
+                })
+                .collect(),
             mod_type: self.mod_type.to_string(),
             mod_position: self.sequence.len() as u8 - self.mod_position - 1,
         }
@@ -76,11 +106,18 @@ mod tests {
 
     #[test]
     fn test_motif_reverse_complement() {
-        let motif = Motif::new("GATC", "m", 1);
-        let reversed_complement_motif = motif.reverse_complement();
-        assert_eq!(reversed_complement_motif.sequence, "CTAG");
-        assert_eq!(reversed_complement_motif.mod_position, 2);
-        assert_eq!(reversed_complement_motif.mod_type, motif.mod_type);
+        let motif1 = Motif::new("GATC", "m", 3);
+        let motif2 = Motif::new("TCCCG", "m", 1);
+        let motif3 = Motif::new("RGATCY", "a", 2);
+        assert_eq!(motif1.reverse_complement().sequence, "GATC");
+        assert_eq!(motif2.reverse_complement().sequence, "CGGGA");
+        assert_eq!(motif3.reverse_complement().sequence, "RGATCY");
+        assert_eq!(motif1.reverse_complement().mod_type, "m");
+        assert_eq!(motif2.reverse_complement().mod_type, "m");
+        assert_eq!(motif3.reverse_complement().mod_type, "a");
+        assert_eq!(motif1.reverse_complement().mod_position, 0);
+        assert_eq!(motif2.reverse_complement().mod_position, 3);
+        assert_eq!(motif3.reverse_complement().mod_position, 3);
     }
 
     #[test]
@@ -95,10 +132,18 @@ mod tests {
     #[test]
     fn test_find_motif_indices_in_contig() {
         let contig = "GGATCTCCATGATC".to_string();
+        let contig2 = "TGGACGATCCCGATC".to_string();
         let motif1 = Motif::new("GATC", "m", 3);
         let motif2 = Motif::new("RGATCY", "m", 4);
+        let motif3 = Motif::new("GATC", "a", 1);
 
         assert_eq!(find_motif_indices_in_contig(&contig, &motif1), vec![4, 13]);
         assert_eq!(find_motif_indices_in_contig(&contig, &motif2), vec![4]);
+
+        assert_eq!(find_motif_indices_in_contig(&contig2, &motif3), vec![6, 12]);
+        assert_eq!(
+            find_motif_indices_in_contig(&contig2, &motif3.reverse_complement()),
+            vec![7, 13]
+        );
     }
 }
