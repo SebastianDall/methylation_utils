@@ -253,9 +253,9 @@ fn calculate_contig_read_methylation_pattern(
 
                         let p_con = concat([p_fwd, p_rev], UnionArgs::default())
                             .unwrap()
-                            .with_columns([
-                                (col("N_modified") / col("N_valid_cov")).alias("motif_mean")
-                            ]);
+                            .with_columns([(col("N_modified").cast(DataType::Float64)
+                                / col("N_valid_cov").cast(DataType::Float64))
+                            .alias("motif_mean")]);
 
                         let p_read_methylation = p_con
                             .group_by([col("contig")])
