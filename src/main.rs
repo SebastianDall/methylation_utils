@@ -367,3 +367,40 @@ fn main() {
     //     report.flamegraph(&mut file).unwrap();
     // }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_methylation() {
+        let subpileup = df!(
+            "contig" => ["contig_3","contig_3","contig_3","contig_3","contig_3"],
+            "strand" => ["+", "+", "+", "-", "-"],
+            "mod_type" => ["a", "m", "a", "a", "a"],
+            "start" => [6, 8, 12, 7, 13],
+            "N_modified" => [20, 20, 5, 20 ,5],
+            "N_valid_cov" => [20 , 20, 20, 20, 20]
+        )
+        .expect("Could not initialize dataframe");
+
+        let mut subpileups = HashMap::new();
+        subpileups.insert("contig_3".to_string(), subpileup);
+
+        let mut contig_map = ContigMap::new();
+        contig_map.insert("contig_3".to_string(), "TGGACGATCCCGATC".to_string());
+
+        let motifs = vec![Motif::new("GATC", "a", 1)];
+
+        let contig_methylation_pattern =
+            calculate_contig_read_methylation_pattern(contig_map, subpileups, motifs, 1);
+
+        println!("{:#?}", contig_methylation_pattern);
+
+        let expected_result = Column::new("median".into(), [0.625]);
+        assert_eq!(
+            contig_methylation_pattern.column("median").unwrap(),
+            &expected_result
+        );
+    }
+}
