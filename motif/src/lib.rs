@@ -83,7 +83,7 @@ impl Motif {
 
 pub fn find_motif_indices_in_contig(contig: &str, motif: &Motif) -> Vec<u32> {
     let regex_str = motif.to_regex();
-    let re = Regex::new(&regex_str).expect("Expected regex patter");
+    let re = Regex::new(&regex_str).expect("Expected regex pattern");
 
     let indices = re
         .find_iter(contig)
