@@ -258,6 +258,7 @@ fn calculate_contig_read_methylation_pattern(
                     .unwrap();
 
                 if (p_fwd.shape().0, p_rev.shape().0) == (0, 0) {
+                    // TODO: put in a log file.
                     // println!(
                     //     "{} not found in contig {}",
                     //     motif.sequence.clone(),
@@ -266,11 +267,6 @@ fn calculate_contig_read_methylation_pattern(
                     continue;
                 }
 
-                // let p_con = concat([p_fwd.lazy(), p_rev.lazy()], UnionArgs::default())
-                //     .unwrap()
-                //     .with_columns([(col("N_modified").cast(DataType::Float64)
-                //         / col("N_valid_cov").cast(DataType::Float64))
-                //     .alias("motif_mean")]);
                 let p_con =
                     p_fwd
                         .vstack(&p_rev)
