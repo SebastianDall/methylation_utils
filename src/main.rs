@@ -210,86 +210,110 @@ fn calculate_contig_read_methylation_pattern(
     let schema = Schema::from_iter(vec![f1, f2, f3, f4, f5, f6]);
     let empty_df = DataFrame::empty_with_schema(&schema);
 
-    let results: Vec<LazyFrame> = contig_ids
-        .chunks(1000)
-        .flat_map(|batch| {
-            batch
-                .par_iter()
-                .map(|contig_id| {
-                    let contig_seq = contigs
-                        .get(contig_id)
-                        .expect("Could not find contig in ContigMap");
-                    let subpileup = subpileups_map
-                        .get(contig_id)
-                        .expect("Could not find subpileup in subpileups_map");
+    let results = Arc::new(Mutex::new(Vec::new()));
 
-                    let mut local_read_methylation_df = Box::new(empty_df.clone());
+    contig_ids.chunks(1000).for_each(|batch| {
+        batch.par_iter().for_each(|contig_id| {
+            let contig_seq = contigs
+                .get(contig_id)
+                .expect("Could not find contig in ContigMap");
+            let subpileup = subpileups_map
+                .get(contig_id)
+                .expect("Could not find subpileup in subpileups_map");
 
-                    for motif in motifs.iter() {
-                        let fwd_indices = find_motif_indices_in_contig(&contig_seq, &motif);
+            let mut local_read_methylation_df = empty_df.clone();
 
-                        let rev_indices =
-                            find_motif_indices_in_contig(&contig_seq, &motif.reverse_complement());
+            for motif in motifs.iter() {
+                let fwd_indices = find_motif_indices_in_contig(&contig_seq, &motif);
 
-                        let p_fwd = subpileup.clone().lazy().filter(
-                            col("strand")
-                                .eq(lit("+"))
-                                .and(col("mod_type").eq(lit(motif.mod_type.clone())))
-                                .and(
-                                    col("start")
-                                        .is_in(lit(Series::new("start".into(), &fwd_indices))),
-                                ),
-                        );
+                let rev_indices =
+                    find_motif_indices_in_contig(&contig_seq, &motif.reverse_complement());
 
-                        let p_rev = subpileup.clone().lazy().filter(
-                            col("strand")
-                                .eq(lit("-"))
-                                .and(col("mod_type").eq(lit(motif.mod_type.clone())))
-                                .and(
-                                    col("start")
-                                        .is_in(lit(Series::new("start".into(), &rev_indices))),
-                                ),
-                        );
+                let p_fwd = subpileup
+                    .clone()
+                    .lazy()
+                    .filter(
+                        col("strand")
+                            .eq(lit("+"))
+                            .and(col("mod_type").eq(lit(motif.mod_type.clone())))
+                            .and(
+                                col("start").is_in(lit(Series::new("start".into(), &fwd_indices))),
+                            ),
+                    )
+                    .collect()
+                    .unwrap();
 
-                        let p_con = concat([p_fwd, p_rev], UnionArgs::default())
-                            .unwrap()
-                            .with_columns([(col("N_modified").cast(DataType::Float64)
-                                / col("N_valid_cov").cast(DataType::Float64))
-                            .alias("motif_mean")]);
+                let p_rev = subpileup
+                    .clone()
+                    .lazy()
+                    .filter(
+                        col("strand")
+                            .eq(lit("-"))
+                            .and(col("mod_type").eq(lit(motif.mod_type.clone())))
+                            .and(
+                                col("start").is_in(lit(Series::new("start".into(), &rev_indices))),
+                            ),
+                    )
+                    .collect()
+                    .unwrap();
 
-                        let p_read_methylation = p_con
-                            .group_by([col("contig")])
-                            .agg([
-                                (col("motif_mean").median()).alias("median"),
-                                (col("contig").count()).alias("N_motif_obs"),
-                            ])
-                            .with_columns([
-                                (lit(motif.sequence.clone())).alias("motif"),
-                                (lit(motif.mod_type.clone())).alias("mod_type"),
-                                (lit(motif.mod_position.clone() as i8)).alias("mod_position"),
-                            ]);
+                if (p_fwd.shape().0, p_rev.shape().0) == (0, 0) {
+                    // println!(
+                    //     "{} not found in contig {}",
+                    //     motif.sequence.clone(),
+                    //     contig_id
+                    // );
+                    continue;
+                }
 
-                        *local_read_methylation_df = concat(
-                            [local_read_methylation_df.lazy(), p_read_methylation],
-                            UnionArgs::default(),
-                        )
+                // let p_con = concat([p_fwd.lazy(), p_rev.lazy()], UnionArgs::default())
+                //     .unwrap()
+                //     .with_columns([(col("N_modified").cast(DataType::Float64)
+                //         / col("N_valid_cov").cast(DataType::Float64))
+                //     .alias("motif_mean")]);
+                let p_con =
+                    p_fwd
+                        .vstack(&p_rev)
                         .unwrap()
-                        .collect()
-                        .unwrap();
-                    }
+                        .lazy()
+                        .with_columns([(col("N_modified").cast(DataType::Float64)
+                            / col("N_valid_cov").cast(DataType::Float64))
+                        .alias("motif_mean")]);
 
-                    {
-                        let pb = pb_arcmut.lock().unwrap();
-                        pb.inc(1);
-                    }
+                let p_read_methylation = p_con
+                    .group_by([col("contig")])
+                    .agg([
+                        (col("motif_mean").median()).alias("median"),
+                        (col("contig").count()).alias("N_motif_obs"),
+                    ])
+                    .with_columns([
+                        (lit(motif.sequence.clone())).alias("motif"),
+                        (lit(motif.mod_type.clone())).alias("mod_type"),
+                        (lit(motif.mod_position.clone() as i8)).alias("mod_position"),
+                    ]);
 
-                    local_read_methylation_df.lazy()
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+                local_read_methylation_df = concat(
+                    [local_read_methylation_df.lazy(), p_read_methylation],
+                    UnionArgs::default(),
+                )
+                .unwrap()
+                .collect()
+                .unwrap();
+            }
 
-    let read_methylation_df = concat(&results, UnionArgs::default())
+            {
+                let pb = pb_arcmut.lock().unwrap();
+                pb.inc(1);
+            }
+
+            let mut results_lock = results.lock().expect("Could not open results mutex");
+            results_lock.push(local_read_methylation_df.lazy());
+        });
+    });
+
+    let final_results: Vec<LazyFrame> = results.lock().unwrap().clone();
+
+    let read_methylation_df = concat(&final_results, UnionArgs::default())
         .unwrap()
         .collect()
         .unwrap();
