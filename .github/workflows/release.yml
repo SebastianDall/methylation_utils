@@ -64,7 +64,9 @@ jobs:
       - name: Download Binaries
         uses: actions/download-artifact@v4
         with:
-          name: methylation_utils-*
+          name: methylation_utils
+          pattern: methylation_utils-*
+          merge-multiple: true
           run-id: ${{ github.event.workflow_run_id }}
       - name: Create github release
         uses: softprops/action-gh-release@v2
