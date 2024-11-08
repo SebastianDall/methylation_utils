@@ -276,4 +276,30 @@ mod tests {
             &expected_result
         );
     }
+
+    #[test]
+    fn test_create_subpileups() {
+        let subpileup = df!(
+            "contig" => ["contig_3","contig_3","contig_3","contig_3","contig_3","contig_4","contig_4","contig_4","contig_4"],
+            "strand" => ["+", "+", "+", "-", "-", "+", "+", "-", "-"],
+            "mod_type" => ["a", "m", "a", "a", "a", "m", "a", "a", "a"],
+            "start" => [6, 8, 12, 7, 13, 8, 12, 7, 13],
+            "N_modified" => [20, 20, 5, 20 ,5, 2, 0, 20 ,5],
+            "N_valid_cov" => [20 , 20, 20, 20, 20, 2, 2, 20, 20]
+        )
+        .expect("Could not init df")
+        .lazy();
+
+        let contig_ids = vec!["contig_3".to_string(), "contig_4".to_string()];
+
+        let subpileups_1 = create_subpileups(subpileup.clone(), contig_ids.clone(), 3 as u32);
+
+        assert_eq!(subpileups_1.get("contig_3").unwrap().shape().0, 5);
+        assert_eq!(subpileups_1.get("contig_4").unwrap().shape().0, 2);
+
+        let subpileups_2 = create_subpileups(subpileup, contig_ids, 1 as u32);
+
+        assert_eq!(subpileups_2.get("contig_3").unwrap().shape().0, 5);
+        assert_eq!(subpileups_2.get("contig_4").unwrap().shape().0, 4);
+    }
 }
