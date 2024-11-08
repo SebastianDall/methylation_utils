@@ -4,6 +4,7 @@ use polars::{datatypes::DataType, frame::DataFrame, lazy::frame::LazyFrame, prel
 use rayon::prelude::*;
 use std::{
     collections::HashMap,
+    env,
     fmt::Write,
     sync::{Arc, Mutex},
 };
@@ -77,10 +78,12 @@ pub fn calculate_contig_read_methylation_pattern(
     motifs: Vec<Motif>,
     num_threads: usize,
 ) -> DataFrame {
+    env::set_var("POLARS_MAX_THREADS", "1");
+
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
-        .build_global()
-        .expect("Failed to build thread pool");
+        .build()
+        .expect("Could not initialize threadpool");
 
     let contig_ids = subpileups_map.keys().cloned().collect::<Vec<String>>();
 
