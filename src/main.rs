@@ -1,7 +1,7 @@
 use clap::Parser;
 use core::panic;
 use polars::prelude::*;
-use std::{fs, path::Path, process};
+use std::{env, fs, path::Path, process};
 
 mod data_load;
 use data_load::{load_contigs, load_pileup_lazy};
@@ -18,6 +18,13 @@ fn main() {
     // let guard = pprof::ProfilerGuard::new(100).unwrap();
     let args = Args::parse();
     println!("Running methylation_utils with {} threads", &args.threads);
+
+    env::set_var("POLARS_MAX_THREADS", &args.threads.to_string());
+
+    match env::var("POLARS_MAX_THREADS") {
+        Ok(val) => println!("POLARS_MAX_THREADS is set to: {}", val),
+        Err(e) => println!("POLARS_MAX_THREADS is not set: {}", e),
+    }
 
     let outpath = Path::new(&args.output);
 
