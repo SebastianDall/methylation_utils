@@ -17,6 +17,7 @@ use processing::{calculate_contig_read_methylation_pattern, create_motifs, creat
 fn main() {
     // let guard = pprof::ProfilerGuard::new(100).unwrap();
     let args = Args::parse();
+    println!("Running methylation_utils with {} threads", &args.threads);
 
     let outpath = Path::new(&args.output);
 
