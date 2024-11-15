@@ -35,11 +35,11 @@ fn main() {
             }
         }
         Some(ext) => {
-            println!("Incorrect file extension: {:#?}. Should be tsv", ext);
+            eprintln!("Incorrect file extension: {:#?}. Should be tsv", ext);
             process::exit(1);
         }
         None => {
-            println!("No filename provided");
+            eprintln!("No filename provided");
             process::exit(1);
         }
     }
