@@ -73,7 +73,11 @@ impl Motif {
             .chars()
             .map(|c| match IUPAC_MAPPING.get(&c.to_string().as_str()) {
                 Some(s) => {
-                    format!("[{}]", s)
+                    if *s == "." {
+                        ".".to_string()
+                    } else {
+                        format!("[{}]", s)
+                    }
                 }
                 None => c.to_string(),
             })
@@ -136,7 +140,9 @@ mod tests {
         let motif1 = Motif::new("GATC", "m", 3);
         let motif2 = Motif::new("RGATCY", "m", 4);
         let motif3 = Motif::new("GATC", "a", 1);
+        let motif4 = Motif::new("GGANNNTCC", "a", 2);
 
+        println!("{}", &motif4.to_regex());
         assert_eq!(find_motif_indices_in_contig(&contig, &motif1), vec![4, 13]);
         assert_eq!(find_motif_indices_in_contig(&contig, &motif2), vec![4]);
 
@@ -145,5 +151,7 @@ mod tests {
             find_motif_indices_in_contig(&contig2, &motif3.reverse_complement()),
             vec![7, 13]
         );
+
+        assert_eq!(find_motif_indices_in_contig(&contig2, &motif4), vec![3])
     }
 }
