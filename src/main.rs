@@ -23,7 +23,7 @@ fn main() {
 
     match env::var("POLARS_MAX_THREADS") {
         Ok(_val) => {}
-        Err(e) => println!("POLARS_MAX_THREADS is not set: {}", e),
+        Err(e) => println!("WARNING: POLARS_MAX_THREADS is not set: {}", e),
     }
 
     let outpath = Path::new(&args.output);
