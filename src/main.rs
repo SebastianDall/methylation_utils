@@ -22,7 +22,7 @@ fn main() {
     env::set_var("POLARS_MAX_THREADS", &args.threads.to_string());
 
     match env::var("POLARS_MAX_THREADS") {
-        Ok(val) => println!("POLARS_MAX_THREADS is set to: {}", val),
+        Ok(_val) => {}
         Err(e) => println!("POLARS_MAX_THREADS is not set: {}", e),
     }
 
