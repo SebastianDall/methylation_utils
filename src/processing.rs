@@ -32,12 +32,11 @@ pub fn create_subpileups(
                 .and(col("contig").is_in(lit(Series::new("contig".into(), &contig_ids)))),
         )
         .collect()
-        .map(|df| {
-            assert!(!df.is_empty(), "The pileup is empty after filtering");
-            df
-        })
         .expect("Error collecting pileup");
 
+    assert!(!pileup.is_empty(), "pileup is empty after filtering");
+
+    println!("Creating subpileups");
     let subpileups = pileup
         .partition_by(["contig"], true)
         .expect("Couldn't partition pileup");
