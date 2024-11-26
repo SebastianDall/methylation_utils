@@ -110,11 +110,12 @@ pub fn calculate_contig_read_methylation_pattern(
     let f1: Field = Field::new("contig".into(), DataType::String);
     let f2: Field = Field::new("median".into(), DataType::Float64);
     let f3: Field = Field::new("N_motif_obs".into(), DataType::UInt32);
-    let f4: Field = Field::new("motif".into(), DataType::String);
-    let f5: Field = Field::new("mod_type".into(), DataType::String);
-    let f6: Field = Field::new("mod_position".into(), DataType::Int32);
+    let f4: Field = Field::new("mean_read_cov".into(), DataType::Float64);
+    let f5: Field = Field::new("motif".into(), DataType::String);
+    let f6: Field = Field::new("mod_type".into(), DataType::String);
+    let f7: Field = Field::new("mod_position".into(), DataType::Int32);
 
-    let schema = Schema::from_iter(vec![f1, f2, f3, f4, f5, f6]);
+    let schema = Schema::from_iter(vec![f1, f2, f3, f4, f5, f6, f7]);
     let empty_df = DataFrame::empty_with_schema(&schema);
 
     let results = Arc::new(Mutex::new(Vec::new()));
@@ -188,6 +189,7 @@ pub fn calculate_contig_read_methylation_pattern(
                     .agg([
                         (col("motif_mean").median()).alias("median"),
                         (col("contig").count()).alias("N_motif_obs"),
+                        (col("N_valid_cov").mean()).alias("mean_read_cov"),
                     ])
                     .with_columns([
                         (lit(motif.sequence.clone())).alias("motif"),
@@ -281,6 +283,12 @@ mod tests {
             contig_methylation_pattern.column("median").unwrap(),
             &expected_result
         );
+
+        let expected_mean_read_cov = Column::new("mean_read_cov".into(), [20]);
+        assert_eq!(
+            contig_methylation_pattern.column("mean_read_cov").unwrap(),
+            &expected_mean_read_cov
+        )
     }
 
     #[test]
