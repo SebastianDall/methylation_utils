@@ -1,4 +1,5 @@
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use log::{error, info};
 use motif::{find_motif_indices_in_contig, Motif};
 use polars::{datatypes::DataType, frame::DataFrame, lazy::frame::LazyFrame, prelude::*};
 use rayon::prelude::*;
@@ -16,7 +17,7 @@ pub fn create_subpileups(
     contig_ids: Vec<String>,
     min_valid_read_coverage: u32,
 ) -> HashMap<String, DataFrame> {
-    println!("Filtering pileup");
+    info!("Filtering pileup");
     let pileup = pileup
         .select([
             col("contig"),
@@ -36,7 +37,7 @@ pub fn create_subpileups(
 
     assert!(!pileup.is_empty(), "pileup is empty after filtering");
 
-    println!("Creating subpileups");
+    info!("Creating subpileups");
     let subpileups = pileup
         .partition_by(["contig"], true)
         .expect("Couldn't partition pileup");
@@ -55,20 +56,20 @@ pub fn create_subpileups(
                         subpileups_map.insert(contig_id_str.to_string(), df);
                     }
                     _ => {
-                        eprintln!(
+                        error!(
                             "Expected String value for contig ID, found {:?}",
                             contig_id_anyvalue
                         );
                     }
                 }
             } else {
-                eprintln!("Failed to get value from contig series");
+                error!("Failed to get value from contig series");
             }
         } else {
-            eprintln!("Failed to get contig column");
+            error!("Failed to get contig column");
         }
     }
-    println!(
+    info!(
         "Number of subpileups generated {:?}",
         subpileups_map.keys().count()
     );
@@ -189,7 +190,7 @@ pub fn calculate_contig_read_methylation_pattern(
                     .agg([
                         (col("motif_mean").median()).alias("median"),
                         (col("contig").count()).alias("N_motif_obs"),
-                        (col("N_valid_cov").mean()).alias("mean_read_cov"),
+                        (col("N_valid_cov").cast(DataType::Float64).mean()).alias("mean_read_cov"),
                     ])
                     .with_columns([
                         (lit(motif.sequence.clone())).alias("motif"),
@@ -260,8 +261,8 @@ mod tests {
             "strand" => ["+", "+", "+", "-", "-"],
             "mod_type" => ["a", "m", "a", "a", "a"],
             "start" => [6, 8, 12, 7, 13],
-            "N_modified" => [20, 20, 5, 20 ,5],
-            "N_valid_cov" => [20 , 20, 20, 20, 20]
+            "N_modified" => [15, 20, 5, 20 ,5],
+            "N_valid_cov" => [15, 20, 20, 20, 20]
         )
         .expect("Could not initialize dataframe");
 
@@ -284,7 +285,7 @@ mod tests {
             &expected_result
         );
 
-        let expected_mean_read_cov = Column::new("mean_read_cov".into(), [20]);
+        let expected_mean_read_cov = Column::new("mean_read_cov".into(), [18.75]);
         assert_eq!(
             contig_methylation_pattern.column("mean_read_cov").unwrap(),
             &expected_mean_read_cov
