@@ -1,6 +1,6 @@
 use clap::Parser;
 use core::panic;
-use humantime::format_duration;
+use indicatif::HumanDuration;
 use log::{error, info};
 use polars::prelude::*;
 use std::{env, fs, path::Path, process, time::Instant};
@@ -72,7 +72,7 @@ fn main() {
     let elapsed_preparation_time = preparation_duration.elapsed();
     info!(
         "Data preparation took: {}",
-        format_duration(elapsed_preparation_time).to_string()
+        HumanDuration(elapsed_preparation_time).to_string()
     );
 
     info!("Finding contig methylation pattern");
@@ -83,7 +83,7 @@ fn main() {
         finding_methylation_pattern_duration.elapsed();
     info!(
         "Methylation pattern took: {}",
-        format_duration(elapsed_finding_methylation_pattern_duration).to_string()
+        HumanDuration(elapsed_finding_methylation_pattern_duration).to_string()
     );
 
     match std::fs::File::create(outpath) {
@@ -101,7 +101,7 @@ fn main() {
     let elapsed_total_duration = total_duration.elapsed();
     info!(
         "Total time: {}",
-        format_duration(elapsed_total_duration).to_string()
+        HumanDuration(elapsed_total_duration).to_string()
     );
     // if let Ok(report) = guard.report().build() {
     // use std::fs::File;
