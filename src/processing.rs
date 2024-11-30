@@ -111,7 +111,7 @@ pub fn calculate_contig_read_methylation_pattern(
     let schema = Schema::from_iter(vec![
         Field::new("contig".into(), DataType::String),
         Field::new("median".into(), DataType::Float64),
-        Field::new("N_motif_obs".into(), DataType::UInt32),
+        Field::new("N_motif_obs".into(), DataType::UInt64),
         Field::new("mean_read_cov".into(), DataType::Float64),
         Field::new("motif".into(), DataType::String),
         Field::new("mod_type".into(), DataType::String),
@@ -137,52 +137,27 @@ pub fn calculate_contig_read_methylation_pattern(
                 let rev_indices =
                     find_motif_indices_in_contig(&contig_seq, &motif.reverse_complement());
 
-                let p_fwd = subpileup
-                    .clone()
-                    .lazy()
-                    .filter(
-                        col("strand")
-                            .eq(lit("+"))
-                            .and(col("mod_type").eq(lit(motif.mod_type.clone())))
-                            .and(
-                                col("start").is_in(lit(Series::new("start".into(), &fwd_indices))),
-                            ),
-                    )
-                    .collect()
-                    .unwrap();
-
-                let p_rev = subpileup
-                    .clone()
-                    .lazy()
-                    .filter(
-                        col("strand")
-                            .eq(lit("-"))
-                            .and(col("mod_type").eq(lit(motif.mod_type.clone())))
-                            .and(
-                                col("start").is_in(lit(Series::new("start".into(), &rev_indices))),
-                            ),
-                    )
-                    .collect()
-                    .unwrap();
-
-                if (p_fwd.shape().0, p_rev.shape().0) == (0, 0) {
-                    // TODO: put in a log file.
-                    // println!(
-                    //     "{} not found in contig {}",
-                    //     motif.sequence.clone(),
-                    //     contig_id
-                    // );
+                if fwd_indices.is_empty() && rev_indices.is_empty() {
                     continue;
                 }
 
-                let p_con =
-                    p_fwd
-                        .vstack(&p_rev)
-                        .unwrap()
-                        .lazy()
-                        .with_columns([(col("N_modified").cast(DataType::Float64)
-                            / col("N_valid_cov").cast(DataType::Float64))
-                        .alias("motif_mean")]);
+                let fwd_indices_series = Series::new("start".into(), fwd_indices);
+                let rev_indices_series = Series::new("start".into(), rev_indices);
+
+                let p_con = subpileup
+                    .clone()
+                    .lazy()
+                    .filter(
+                        (col("strand")
+                            .eq(lit("+"))
+                            .and(col("start").is_in(lit(fwd_indices_series.clone()))))
+                        .or(col("strand")
+                            .eq(lit("-"))
+                            .and(col("start").is_in(lit(rev_indices_series.clone())))),
+                    )
+                    .with_columns([(col("N_modified").cast(DataType::Float64)
+                        / col("N_valid_cov").cast(DataType::Float64))
+                    .alias("motif_mean")]);
 
                 let p_read_methylation = p_con
                     .group_by([col("contig")])
