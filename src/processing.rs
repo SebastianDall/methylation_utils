@@ -1,4 +1,5 @@
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use log::{error, info};
 use motif::{find_motif_indices_in_contig, Motif};
 use polars::{datatypes::DataType, frame::DataFrame, lazy::frame::LazyFrame, prelude::*};
 use rayon::prelude::*;
@@ -16,7 +17,7 @@ pub fn create_subpileups(
     contig_ids: Vec<String>,
     min_valid_read_coverage: u32,
 ) -> HashMap<String, DataFrame> {
-    println!("Filtering pileup");
+    info!("Filtering pileup");
     let pileup = pileup
         .select([
             col("contig"),
@@ -36,7 +37,7 @@ pub fn create_subpileups(
 
     assert!(!pileup.is_empty(), "pileup is empty after filtering");
 
-    println!("Creating subpileups");
+    info!("Creating subpileups");
     let subpileups = pileup
         .partition_by(["contig"], true)
         .expect("Couldn't partition pileup");
@@ -55,20 +56,20 @@ pub fn create_subpileups(
                         subpileups_map.insert(contig_id_str.to_string(), df);
                     }
                     _ => {
-                        eprintln!(
+                        error!(
                             "Expected String value for contig ID, found {:?}",
                             contig_id_anyvalue
                         );
                     }
                 }
             } else {
-                eprintln!("Failed to get value from contig series");
+                error!("Failed to get value from contig series");
             }
         } else {
-            eprintln!("Failed to get contig column");
+            error!("Failed to get contig column");
         }
     }
-    println!(
+    info!(
         "Number of subpileups generated {:?}",
         subpileups_map.keys().count()
     );
@@ -107,17 +108,16 @@ pub fn calculate_contig_read_methylation_pattern(
 
     let motifs = Arc::new(motifs);
 
-    let f1: Field = Field::new("contig".into(), DataType::String);
-    let f2: Field = Field::new("median".into(), DataType::Float64);
-    let f3: Field = Field::new("N_motif_obs".into(), DataType::UInt32);
-    let f4: Field = Field::new("mean_read_cov".into(), DataType::Float64);
-    let f5: Field = Field::new("motif".into(), DataType::String);
-    let f6: Field = Field::new("mod_type".into(), DataType::String);
-    let f7: Field = Field::new("mod_position".into(), DataType::Int32);
-
-    let schema = Schema::from_iter(vec![f1, f2, f3, f4, f5, f6, f7]);
+    let schema = Schema::from_iter(vec![
+        Field::new("contig".into(), DataType::String),
+        Field::new("median".into(), DataType::Float64),
+        Field::new("N_motif_obs".into(), DataType::UInt64),
+        Field::new("mean_read_cov".into(), DataType::Float64),
+        Field::new("motif".into(), DataType::String),
+        Field::new("mod_type".into(), DataType::String),
+        Field::new("mod_position".into(), DataType::Int32),
+    ]);
     let empty_df = DataFrame::empty_with_schema(&schema);
-
     let results = Arc::new(Mutex::new(Vec::new()));
 
     contig_ids.chunks(1000).for_each(|batch| {
@@ -137,59 +137,34 @@ pub fn calculate_contig_read_methylation_pattern(
                 let rev_indices =
                     find_motif_indices_in_contig(&contig_seq, &motif.reverse_complement());
 
-                let p_fwd = subpileup
-                    .clone()
-                    .lazy()
-                    .filter(
-                        col("strand")
-                            .eq(lit("+"))
-                            .and(col("mod_type").eq(lit(motif.mod_type.clone())))
-                            .and(
-                                col("start").is_in(lit(Series::new("start".into(), &fwd_indices))),
-                            ),
-                    )
-                    .collect()
-                    .unwrap();
-
-                let p_rev = subpileup
-                    .clone()
-                    .lazy()
-                    .filter(
-                        col("strand")
-                            .eq(lit("-"))
-                            .and(col("mod_type").eq(lit(motif.mod_type.clone())))
-                            .and(
-                                col("start").is_in(lit(Series::new("start".into(), &rev_indices))),
-                            ),
-                    )
-                    .collect()
-                    .unwrap();
-
-                if (p_fwd.shape().0, p_rev.shape().0) == (0, 0) {
-                    // TODO: put in a log file.
-                    // println!(
-                    //     "{} not found in contig {}",
-                    //     motif.sequence.clone(),
-                    //     contig_id
-                    // );
+                if fwd_indices.is_empty() && rev_indices.is_empty() {
                     continue;
                 }
 
-                let p_con =
-                    p_fwd
-                        .vstack(&p_rev)
-                        .unwrap()
-                        .lazy()
-                        .with_columns([(col("N_modified").cast(DataType::Float64)
-                            / col("N_valid_cov").cast(DataType::Float64))
-                        .alias("motif_mean")]);
+                let fwd_indices_series = Series::new("start".into(), fwd_indices);
+                let rev_indices_series = Series::new("start".into(), rev_indices);
+
+                let p_con = subpileup
+                    .clone()
+                    .lazy()
+                    .filter(
+                        (col("strand")
+                            .eq(lit("+"))
+                            .and(col("start").is_in(lit(fwd_indices_series.clone()))))
+                        .or(col("strand")
+                            .eq(lit("-"))
+                            .and(col("start").is_in(lit(rev_indices_series.clone())))),
+                    )
+                    .with_columns([(col("N_modified").cast(DataType::Float64)
+                        / col("N_valid_cov").cast(DataType::Float64))
+                    .alias("motif_mean")]);
 
                 let p_read_methylation = p_con
                     .group_by([col("contig")])
                     .agg([
                         (col("motif_mean").median()).alias("median"),
                         (col("contig").count()).alias("N_motif_obs"),
-                        (col("N_valid_cov").mean()).alias("mean_read_cov"),
+                        (col("N_valid_cov").cast(DataType::Float64).mean()).alias("mean_read_cov"),
                     ])
                     .with_columns([
                         (lit(motif.sequence.clone())).alias("motif"),
@@ -260,8 +235,8 @@ mod tests {
             "strand" => ["+", "+", "+", "-", "-"],
             "mod_type" => ["a", "m", "a", "a", "a"],
             "start" => [6, 8, 12, 7, 13],
-            "N_modified" => [20, 20, 5, 20 ,5],
-            "N_valid_cov" => [20 , 20, 20, 20, 20]
+            "N_modified" => [15, 20, 5, 20 ,5],
+            "N_valid_cov" => [15, 20, 20, 20, 20]
         )
         .expect("Could not initialize dataframe");
 
@@ -284,7 +259,7 @@ mod tests {
             &expected_result
         );
 
-        let expected_mean_read_cov = Column::new("mean_read_cov".into(), [20]);
+        let expected_mean_read_cov = Column::new("mean_read_cov".into(), [18.75]);
         assert_eq!(
             contig_methylation_pattern.column("mean_read_cov").unwrap(),
             &expected_mean_read_cov
