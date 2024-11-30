@@ -19,7 +19,8 @@ use processing::{calculate_contig_read_methylation_pattern, create_motifs, creat
 fn main() {
     // let guard = pprof::ProfilerGuard::new(100).unwrap();
     let total_duration = Instant::now();
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
     let args = Args::parse();
     info!("Running methylation_utils with {} threads", &args.threads);
 
