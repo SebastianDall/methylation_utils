@@ -108,17 +108,16 @@ pub fn calculate_contig_read_methylation_pattern(
 
     let motifs = Arc::new(motifs);
 
-    let f1: Field = Field::new("contig".into(), DataType::String);
-    let f2: Field = Field::new("median".into(), DataType::Float64);
-    let f3: Field = Field::new("N_motif_obs".into(), DataType::UInt32);
-    let f4: Field = Field::new("mean_read_cov".into(), DataType::Float64);
-    let f5: Field = Field::new("motif".into(), DataType::String);
-    let f6: Field = Field::new("mod_type".into(), DataType::String);
-    let f7: Field = Field::new("mod_position".into(), DataType::Int32);
-
-    let schema = Schema::from_iter(vec![f1, f2, f3, f4, f5, f6, f7]);
+    let schema = Schema::from_iter(vec![
+        Field::new("contig".into(), DataType::String),
+        Field::new("median".into(), DataType::Float64),
+        Field::new("N_motif_obs".into(), DataType::UInt32),
+        Field::new("mean_read_cov".into(), DataType::Float64),
+        Field::new("motif".into(), DataType::String),
+        Field::new("mod_type".into(), DataType::String),
+        Field::new("mod_position".into(), DataType::Int32),
+    ]);
     let empty_df = DataFrame::empty_with_schema(&schema);
-
     let results = Arc::new(Mutex::new(Vec::new()));
 
     contig_ids.chunks(1000).for_each(|batch| {
