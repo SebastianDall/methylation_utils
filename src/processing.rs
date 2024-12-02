@@ -15,10 +15,11 @@ pub fn create_subpileups(
     pileup: LazyFrame,
     contig_ids: Vec<String>,
     min_valid_read_coverage: u32,
+    batches: usize,
 ) -> Vec<DataFrame> {
     info!("Creating subpileups");
 
-    let tasks = contig_ids.chunks(5000).len() as u64;
+    let tasks = contig_ids.len() as u64;
     let pb = ProgressBar::new(tasks);
     pb.set_style(
         ProgressStyle::with_template(
@@ -34,7 +35,7 @@ pub fn create_subpileups(
 
     let mut subpileup_vec: Vec<DataFrame> = Vec::new();
 
-    for contig_ids_batch in contig_ids.chunks(5000) {
+    for contig_ids_batch in contig_ids.chunks(batches) {
         let pileup_batch = pileup
             .clone()
             .select([
@@ -63,7 +64,7 @@ pub fn create_subpileups(
 
         subpileup_vec.append(&mut subpileups);
 
-        pb.inc(1);
+        pb.inc(contig_ids_batch.len() as u64);
     }
 
     info!("Number of subpileups generated {:?}", subpileup_vec.len());
@@ -72,7 +73,7 @@ pub fn create_subpileups(
 
 pub fn calculate_contig_read_methylation_pattern(
     contigs: ContigMap,
-    subpileups_map: Vec<DataFrame>,
+    subpileups: Vec<DataFrame>,
     motifs: Vec<Motif>,
     num_threads: usize,
 ) -> DataFrame {
@@ -83,11 +84,11 @@ pub fn calculate_contig_read_methylation_pattern(
         .build()
         .expect("Could not initialize threadpool");
 
-    let tasks = subpileups_map.chunks(1000).len() as u64;
+    let tasks = subpileups.len() as u64;
     let pb = ProgressBar::new(tasks);
     pb.set_style(
         ProgressStyle::with_template(
-            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
+            "[{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
         )
         .unwrap()
         .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
@@ -111,7 +112,7 @@ pub fn calculate_contig_read_methylation_pattern(
     let empty_df = DataFrame::empty_with_schema(&schema);
     let results = Arc::new(Mutex::new(Vec::new()));
 
-    subpileups_map.chunks(1000).for_each(|batch| {
+    subpileups.chunks(1000).for_each(|batch| {
         batch.par_iter().for_each(|subpileup| {
             let contig_id = match subpileup.column("contig") {
                 Ok(column) => match column.get(0) {
@@ -187,8 +188,9 @@ pub fn calculate_contig_read_methylation_pattern(
             let mut results_lock = results.lock().expect("Could not open results mutex");
             results_lock.push(local_read_methylation_df.lazy());
         });
-        pb.inc(1);
+        pb.inc(batch.len() as u64);
     });
+    println!(""); //To stop log overwriting the progressbar
 
     let final_results: Vec<LazyFrame> = results.lock().unwrap().clone();
 
@@ -275,7 +277,7 @@ mod tests {
 
         let contig_ids = vec!["contig_3".to_string(), "contig_4".to_string()];
 
-        let subpileups_1 = create_subpileups(pileup.clone(), contig_ids.clone(), 3 as u32);
+        let subpileups_1 = create_subpileups(pileup.clone(), contig_ids.clone(), 3 as u32, 0);
 
         assert_eq!(subpileups_1.len(), 2);
 
@@ -304,7 +306,7 @@ mod tests {
             }
         }
 
-        let subpileups_2 = create_subpileups(pileup, contig_ids, 1 as u32);
+        let subpileups_2 = create_subpileups(pileup, contig_ids, 1 as u32, 0);
 
         for subpileup in subpileups_2 {
             let contig_id = match subpileup.column("contig") {

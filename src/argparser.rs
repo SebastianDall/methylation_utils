@@ -20,4 +20,7 @@ pub struct Args {
 
     #[arg(long, default_value_t = 3)]
     pub min_valid_read_coverage: u32,
+
+    #[arg(long, default_value_t = 0)]
+    pub batches: usize,
 }

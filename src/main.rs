@@ -68,7 +68,16 @@ fn main() {
     let contigs = load_contigs(&args.assembly).expect("Error loading assembly");
     let contig_ids: Vec<String> = contigs.keys().cloned().collect();
 
-    let subpileups = create_subpileups(lf_pileup, contig_ids, args.min_valid_read_coverage);
+    let batches = if args.batches == 0 {
+        info!("Loading pileup without batching");
+        contig_ids.len()
+    } else {
+        info!("Loading pileup with {} contigs at a time", args.batches);
+        args.batches
+    };
+
+    let subpileups =
+        create_subpileups(lf_pileup, contig_ids, args.min_valid_read_coverage, batches);
 
     let elapsed_preparation_time = preparation_duration.elapsed();
     info!(
