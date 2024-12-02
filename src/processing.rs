@@ -277,7 +277,7 @@ mod tests {
 
         let contig_ids = vec!["contig_3".to_string(), "contig_4".to_string()];
 
-        let subpileups_1 = create_subpileups(pileup.clone(), contig_ids.clone(), 3 as u32, 0);
+        let subpileups_1 = create_subpileups(pileup.clone(), contig_ids.clone(), 3 as u32, 2);
 
         assert_eq!(subpileups_1.len(), 2);
 
@@ -306,7 +306,7 @@ mod tests {
             }
         }
 
-        let subpileups_2 = create_subpileups(pileup, contig_ids, 1 as u32, 0);
+        let subpileups_2 = create_subpileups(pileup, contig_ids, 1 as u32, 2);
 
         for subpileup in subpileups_2 {
             let contig_id = match subpileup.column("contig") {

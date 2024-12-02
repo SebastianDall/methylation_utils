@@ -68,6 +68,11 @@ fn main() {
     let contigs = load_contigs(&args.assembly).expect("Error loading assembly");
     let contig_ids: Vec<String> = contigs.keys().cloned().collect();
 
+    if contig_ids.len() == 0 {
+        error!("No contigs are loaded!");
+        process::exit(1);
+    }
+
     let batches = if args.batches == 0 {
         info!("Loading pileup without batching");
         contig_ids.len()
