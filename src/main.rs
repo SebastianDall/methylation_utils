@@ -18,7 +18,7 @@ mod processing;
 use processing::{calculate_contig_read_methylation_pattern, create_motifs, create_subpileups};
 
 fn main() {
-    // let guard = pprof::ProfilerGuard::new(100).unwrap();
+    // let guard = pprof::ProfilerGuard::new(1000).unwrap();
     let total_duration = Instant::now();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -108,7 +108,7 @@ fn main() {
         format_duration(elapsed_total_duration).to_string()
     );
     // if let Ok(report) = guard.report().build() {
-    // use std::fs::File;
+    //     use std::fs::File;
     //     use std::io::Write;
 
     //     let mut file = File::create("flamegraph.svg").unwrap();

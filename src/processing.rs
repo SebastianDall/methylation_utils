@@ -4,7 +4,6 @@ use motif::{find_motif_indices_in_contig, Motif};
 use polars::{datatypes::DataType, frame::DataFrame, lazy::frame::LazyFrame, prelude::*};
 use rayon::prelude::*;
 use std::{
-    collections::HashMap,
     env,
     fmt::Write,
     sync::{Arc, Mutex},
@@ -16,69 +15,64 @@ pub fn create_subpileups(
     pileup: LazyFrame,
     contig_ids: Vec<String>,
     min_valid_read_coverage: u32,
-) -> HashMap<String, DataFrame> {
-    info!("Filtering pileup");
-    let pileup = pileup
-        .select([
-            col("contig"),
-            col("mod_type"),
-            col("strand"),
-            col("start"),
-            col("N_valid_cov"),
-            col("N_modified"),
-        ])
-        .filter(
-            col("N_valid_cov")
-                .gt_eq(lit(min_valid_read_coverage as i64))
-                .and(col("contig").is_in(lit(Series::new("contig".into(), &contig_ids)))),
-        )
-        .collect()
-        .expect("Error collecting pileup");
-
-    assert!(!pileup.is_empty(), "pileup is empty after filtering");
-
+) -> Vec<DataFrame> {
     info!("Creating subpileups");
-    let subpileups = pileup
-        .partition_by(["contig"], true)
-        .expect("Couldn't partition pileup");
 
-    drop(pileup);
-
-    let mut subpileups_map = HashMap::new();
-    for df in subpileups {
-        if let Ok(contig_series) = df.column("contig") {
-            if let Ok(contig_id_anyvalue) = contig_series.get(0) {
-                match contig_id_anyvalue {
-                    AnyValue::String(contig_id_str) => {
-                        subpileups_map.insert(contig_id_str.to_string(), df);
-                    }
-                    AnyValue::StringOwned(contig_id_str) => {
-                        subpileups_map.insert(contig_id_str.to_string(), df);
-                    }
-                    _ => {
-                        error!(
-                            "Expected String value for contig ID, found {:?}",
-                            contig_id_anyvalue
-                        );
-                    }
-                }
-            } else {
-                error!("Failed to get value from contig series");
-            }
-        } else {
-            error!("Failed to get contig column");
-        }
-    }
-    info!(
-        "Number of subpileups generated {:?}",
-        subpileups_map.keys().count()
+    let tasks = contig_ids.chunks(5000).len() as u64;
+    let pb = ProgressBar::new(tasks);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "[{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
+        )
+        .unwrap()
+        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
+            write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
+        })
+        .progress_chars("#>-"),
     );
-    subpileups_map
+    pb.tick();
+
+    let mut subpileup_vec: Vec<DataFrame> = Vec::new();
+
+    for contig_ids_batch in contig_ids.chunks(5000) {
+        let pileup_batch = pileup
+            .clone()
+            .select([
+                col("contig"),
+                col("mod_type"),
+                col("strand"),
+                col("start"),
+                col("N_valid_cov"),
+                col("N_modified"),
+            ])
+            .filter(col("contig").is_in(lit(Series::new("contig".into(), contig_ids_batch))))
+            .filter(col("N_valid_cov").gt_eq(lit(min_valid_read_coverage as i64)))
+            .with_columns([(col("N_modified").cast(DataType::Float64)
+                / col("N_valid_cov").cast(DataType::Float64))
+            .alias("motif_mean")])
+            .collect()
+            .expect("Error collecting pileup");
+
+        assert!(!pileup_batch.is_empty(), "pileup is empty after filtering");
+
+        let mut subpileups = pileup_batch
+            .partition_by(["contig"], true)
+            .expect("Couldn't partition pileup");
+
+        drop(pileup_batch);
+
+        subpileup_vec.append(&mut subpileups);
+
+        pb.inc(1);
+    }
+
+    info!("Number of subpileups generated {:?}", subpileup_vec.len());
+    subpileup_vec
 }
 
 pub fn calculate_contig_read_methylation_pattern(
     contigs: ContigMap,
-    subpileups_map: HashMap<String, DataFrame>,
+    subpileups_map: Vec<DataFrame>,
     motifs: Vec<Motif>,
     num_threads: usize,
 ) -> DataFrame {
@@ -89,9 +83,7 @@ pub fn calculate_contig_read_methylation_pattern(
         .build()
         .expect("Could not initialize threadpool");
 
-    let contig_ids = subpileups_map.keys().cloned().collect::<Vec<String>>();
-
-    let tasks = contig_ids.len() as u64;
+    let tasks = subpileups_map.chunks(1000).len() as u64;
     let pb = ProgressBar::new(tasks);
     pb.set_style(
         ProgressStyle::with_template(
@@ -103,8 +95,7 @@ pub fn calculate_contig_read_methylation_pattern(
         })
         .progress_chars("#>-"),
     );
-
-    let pb_arcmut = Arc::new(Mutex::new(pb));
+    pb.tick();
 
     let motifs = Arc::new(motifs);
 
@@ -120,14 +111,32 @@ pub fn calculate_contig_read_methylation_pattern(
     let empty_df = DataFrame::empty_with_schema(&schema);
     let results = Arc::new(Mutex::new(Vec::new()));
 
-    contig_ids.chunks(1000).for_each(|batch| {
-        batch.par_iter().for_each(|contig_id| {
-            let contig_seq = contigs
-                .get(contig_id)
-                .expect("Could not find contig in ContigMap");
-            let subpileup = subpileups_map
-                .get(contig_id)
-                .expect("Could not find subpileup in subpileups_map");
+    subpileups_map.chunks(1000).for_each(|batch| {
+        batch.par_iter().for_each(|subpileup| {
+            let contig_id = match subpileup.column("contig") {
+                Ok(column) => match column.get(0) {
+                    Ok(value) => value.to_string().trim_matches('"').to_string(),
+                    Err(e) => {
+                        error!(
+                            "Could not get first value of subpileup from contig column: {}",
+                            e
+                        );
+                        return;
+                    }
+                },
+                Err(e) => {
+                    error!("Could not find contig column in subpileup: {}", e);
+                    return;
+                }
+            };
+
+            let contig_seq = match contigs.get(&contig_id) {
+                Some(contig) => contig,
+                None => {
+                    error!("Could not find contig_id: {}", contig_id);
+                    return;
+                }
+            };
 
             let mut local_read_methylation_df = empty_df.clone();
 
@@ -144,20 +153,14 @@ pub fn calculate_contig_read_methylation_pattern(
                 let fwd_indices_series = Series::new("start".into(), fwd_indices);
                 let rev_indices_series = Series::new("start".into(), rev_indices);
 
-                let p_con = subpileup
-                    .clone()
-                    .lazy()
-                    .filter(
-                        (col("strand")
-                            .eq(lit("+"))
-                            .and(col("start").is_in(lit(fwd_indices_series.clone()))))
-                        .or(col("strand")
-                            .eq(lit("-"))
-                            .and(col("start").is_in(lit(rev_indices_series.clone())))),
-                    )
-                    .with_columns([(col("N_modified").cast(DataType::Float64)
-                        / col("N_valid_cov").cast(DataType::Float64))
-                    .alias("motif_mean")]);
+                let p_con = subpileup.clone().lazy().filter(
+                    (col("strand")
+                        .eq(lit("+"))
+                        .and(col("start").is_in(lit(fwd_indices_series.clone()))))
+                    .or(col("strand")
+                        .eq(lit("-"))
+                        .and(col("start").is_in(lit(rev_indices_series.clone())))),
+                );
 
                 let p_read_methylation = p_con
                     .group_by([col("contig")])
@@ -181,14 +184,10 @@ pub fn calculate_contig_read_methylation_pattern(
                 .unwrap();
             }
 
-            {
-                let pb = pb_arcmut.lock().unwrap();
-                pb.inc(1);
-            }
-
             let mut results_lock = results.lock().expect("Could not open results mutex");
             results_lock.push(local_read_methylation_df.lazy());
         });
+        pb.inc(1);
     });
 
     let final_results: Vec<LazyFrame> = results.lock().unwrap().clone();
@@ -197,11 +196,6 @@ pub fn calculate_contig_read_methylation_pattern(
         .unwrap()
         .collect()
         .unwrap();
-
-    pb_arcmut
-        .lock()
-        .unwrap()
-        .finish_with_message("Finished processing contigs");
 
     read_methylation_df
 }
@@ -236,12 +230,12 @@ mod tests {
             "mod_type" => ["a", "m", "a", "a", "a"],
             "start" => [6, 8, 12, 7, 13],
             "N_modified" => [15, 20, 5, 20 ,5],
-            "N_valid_cov" => [15, 20, 20, 20, 20]
+            "N_valid_cov" => [15, 20, 20, 20, 20],
+            "motif_mean" => [1.0, 1.0, 0.25, 1.0, 0.25]
         )
         .expect("Could not initialize dataframe");
 
-        let mut subpileups = HashMap::new();
-        subpileups.insert("contig_3".to_string(), subpileup);
+        let subpileups = vec![subpileup];
 
         let mut contig_map = ContigMap::new();
         contig_map.insert("contig_3".to_string(), "TGGACGATCCCGATC".to_string());
@@ -268,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_create_subpileups() {
-        let subpileup = df!(
+        let pileup = df!(
             "contig" => ["contig_3","contig_3","contig_3","contig_3","contig_3","contig_4","contig_4","contig_4","contig_4"],
             "strand" => ["+", "+", "+", "-", "-", "+", "+", "-", "-"],
             "mod_type" => ["a", "m", "a", "a", "a", "m", "a", "a", "a"],
@@ -281,14 +275,60 @@ mod tests {
 
         let contig_ids = vec!["contig_3".to_string(), "contig_4".to_string()];
 
-        let subpileups_1 = create_subpileups(subpileup.clone(), contig_ids.clone(), 3 as u32);
+        let subpileups_1 = create_subpileups(pileup.clone(), contig_ids.clone(), 3 as u32);
 
-        assert_eq!(subpileups_1.get("contig_3").unwrap().shape().0, 5);
-        assert_eq!(subpileups_1.get("contig_4").unwrap().shape().0, 2);
+        assert_eq!(subpileups_1.len(), 2);
 
-        let subpileups_2 = create_subpileups(subpileup, contig_ids, 1 as u32);
+        for subpileup in subpileups_1 {
+            let contig_id = match subpileup.column("contig") {
+                Ok(column) => match column.get(0) {
+                    Ok(value) => value.to_string().trim_matches('"').to_string(),
+                    Err(e) => {
+                        error!(
+                            "Could not get first value of subpileup from contig column: {}",
+                            e
+                        );
+                        return;
+                    }
+                },
+                Err(e) => {
+                    error!("Could not find contig column in subpileup: {}", e);
+                    return;
+                }
+            };
 
-        assert_eq!(subpileups_2.get("contig_3").unwrap().shape().0, 5);
-        assert_eq!(subpileups_2.get("contig_4").unwrap().shape().0, 4);
+            if contig_id == "contig_3" {
+                assert_eq!(subpileup.shape().0, 5);
+            } else {
+                assert_eq!(subpileup.shape().0, 2);
+            }
+        }
+
+        let subpileups_2 = create_subpileups(pileup, contig_ids, 1 as u32);
+
+        for subpileup in subpileups_2 {
+            let contig_id = match subpileup.column("contig") {
+                Ok(column) => match column.get(0) {
+                    Ok(value) => value.to_string().trim_matches('"').to_string(),
+                    Err(e) => {
+                        error!(
+                            "Could not get first value of subpileup from contig column: {}",
+                            e
+                        );
+                        return;
+                    }
+                },
+                Err(e) => {
+                    error!("Could not find contig column in subpileup: {}", e);
+                    return;
+                }
+            };
+
+            if contig_id == "contig_3" {
+                assert_eq!(subpileup.shape().0, 5);
+            } else {
+                assert_eq!(subpileup.shape().0, 4);
+            }
+        }
     }
 }
