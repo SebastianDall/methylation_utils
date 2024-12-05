@@ -1,4 +1,4 @@
-use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 use log::{error, info};
 use motif::{find_motif_indices_in_contig, Motif};
 use polars::{datatypes::DataType, frame::DataFrame, lazy::frame::LazyFrame, prelude::*};
@@ -7,6 +7,7 @@ use std::{
     env,
     fmt::Write,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use crate::types::ContigMap;
@@ -21,9 +22,10 @@ pub fn create_subpileups(
 
     let tasks = contig_ids.len() as u64;
     let pb = ProgressBar::new(tasks);
+    pb.set_draw_target(ProgressDrawTarget::stdout());
     pb.set_style(
         ProgressStyle::with_template(
-            "[{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
+            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
         )
         .unwrap()
         .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
@@ -31,7 +33,7 @@ pub fn create_subpileups(
         })
         .progress_chars("#>-"),
     );
-    pb.tick();
+    pb.enable_steady_tick(Duration::from_millis(100));
 
     let mut subpileup_vec: Vec<DataFrame> = Vec::new();
 
@@ -86,9 +88,10 @@ pub fn calculate_contig_read_methylation_pattern(
 
     let tasks = subpileups.len() as u64;
     let pb = ProgressBar::new(tasks);
+    pb.set_draw_target(ProgressDrawTarget::stdout());
     pb.set_style(
         ProgressStyle::with_template(
-            "[{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
+            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
         )
         .unwrap()
         .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
@@ -96,7 +99,7 @@ pub fn calculate_contig_read_methylation_pattern(
         })
         .progress_chars("#>-"),
     );
-    pb.tick();
+    pb.enable_steady_tick(Duration::from_millis(100));
 
     let motifs = Arc::new(motifs);
 
