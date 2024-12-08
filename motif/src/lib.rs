@@ -96,6 +96,14 @@ impl ModType {
             _ => Err(format!("Unsupported mod type: {}", mod_type)),
         }
     }
+
+    pub fn to_pileup_code(&self) -> &'static str {
+        match self {
+            ModType::SixMA => "a",
+            ModType::FiveMC => "m",
+            ModType::FourMC => "21839",
+        }
+    }
 }
 
 impl fmt::Display for ModType {
