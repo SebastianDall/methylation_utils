@@ -149,7 +149,7 @@ impl Motif {
             ModType::SixMA => {
                 if base_at_position != 'A' {
                     return Err(format!(
-                        "mod_position {} points to base '{}' which is invalid for 6mA",
+                        "mod_position {} points to base '{}' which is invalid for 6mA.",
                         mod_position, base_at_position
                     ));
                 }
