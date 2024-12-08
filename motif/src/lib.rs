@@ -108,6 +108,7 @@ impl fmt::Display for ModType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Motif {
     pub sequence: String,
     pub mod_type: ModType,
@@ -129,7 +130,7 @@ impl Motif {
 
         if mod_position as usize > sequence.len() - 1 {
             return Err(format!(
-                "mod_position {} out of bounds for sequence of length {}. Note mod_position is 0-indexed",
+                "mod_position {} is out of bounds for sequence of length {}. Note mod_position is 0-indexed.",
                 mod_position,
                 sequence.len()
             ));
@@ -218,6 +219,43 @@ mod tests {
         assert_eq!(motif.sequence, "GATC");
         assert_eq!(motif.mod_type, ModType::SixMA);
         assert_eq!(motif.mod_position, 1);
+    }
+
+    #[test]
+    fn test_out_of_bounds() {
+        let result = Motif::new("GATC", "m", 4);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "mod_position 4 is out of bounds for sequence of length 4. Note mod_position is 0-indexed."
+        );
+    }
+
+    #[test]
+    fn test_unidentified_motif_type() {
+        let result = Motif::new("GATC", "d", 1);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Unsupported mod type: d");
+    }
+
+    #[test]
+    fn test_invalid_mod_position_base() {
+        let result = Motif::new("ATCG", "m", 3); // 'G' is invalid for 5mC
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "mod_position 3 points to base 'G' which is invalid for 5mC (m) modification type."
+        );
+    }
+
+    #[test]
+    fn test_invalid_iupac_base() {
+        let result = Motif::new("ATZG", "a", 0); // 'G' is invalid for 5mC
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Base 'Z' in sequence 'ATZG' is not a valid IUPAC code"
+        );
     }
 
     #[test]
