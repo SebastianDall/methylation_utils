@@ -270,20 +270,24 @@ mod tests {
         let mut contig_map = ContigMap::new();
         contig_map.insert("contig_3".to_string(), "TGGACGATCCCGATC".to_string());
 
-        let motifs = vec![Motif::new("GATC", "a", 1).unwrap()];
+        let motifs = vec![
+            Motif::new("GATC", "a", 1).unwrap(),
+            Motif::new("GATC", "m", 3).unwrap(),
+            Motif::new("GATC", "21839", 3).unwrap(),
+        ];
 
         let contig_methylation_pattern =
             calculate_contig_read_methylation_pattern(contig_map, subpileups, motifs, 1);
 
         println!("{:#?}", contig_methylation_pattern);
 
-        let expected_result = Column::new("median".into(), [0.625]);
+        let expected_result = Column::new("median".into(), [0.625, 1.0]);
         assert_eq!(
             contig_methylation_pattern.column("median").unwrap(),
             &expected_result
         );
 
-        let expected_mean_read_cov = Column::new("mean_read_cov".into(), [18.75]);
+        let expected_mean_read_cov = Column::new("mean_read_cov".into(), [18.75, 20.0]);
         assert_eq!(
             contig_methylation_pattern.column("mean_read_cov").unwrap(),
             &expected_mean_read_cov
