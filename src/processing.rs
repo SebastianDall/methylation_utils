@@ -1,4 +1,4 @@
-use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 use log::{error, info};
 use motif::{find_motif_indices_in_contig, Motif};
 use polars::{datatypes::DataType, frame::DataFrame, lazy::frame::LazyFrame, prelude::*};
@@ -7,6 +7,7 @@ use std::{
     env,
     fmt::Write,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use crate::types::ContigMap;
@@ -21,9 +22,10 @@ pub fn create_subpileups(
 
     let tasks = contig_ids.len() as u64;
     let pb = ProgressBar::new(tasks);
+    pb.set_draw_target(ProgressDrawTarget::stdout());
     pb.set_style(
         ProgressStyle::with_template(
-            "[{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
+            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}",
         )
         .unwrap()
         .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
@@ -31,7 +33,7 @@ pub fn create_subpileups(
         })
         .progress_chars("#>-"),
     );
-    pb.tick();
+    pb.enable_steady_tick(Duration::from_millis(100));
 
     let mut subpileup_vec: Vec<DataFrame> = Vec::new();
 
@@ -86,9 +88,10 @@ pub fn calculate_contig_read_methylation_pattern(
 
     let tasks = subpileups.len() as u64;
     let pb = ProgressBar::new(tasks);
+    pb.set_draw_target(ProgressDrawTarget::stdout());
     pb.set_style(
         ProgressStyle::with_template(
-            "[{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
+            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
         )
         .unwrap()
         .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
@@ -96,7 +99,7 @@ pub fn calculate_contig_read_methylation_pattern(
         })
         .progress_chars("#>-"),
     );
-    pb.tick();
+    pb.enable_steady_tick(Duration::from_millis(100));
 
     let motifs = Arc::new(motifs);
 
@@ -142,6 +145,8 @@ pub fn calculate_contig_read_methylation_pattern(
             let mut local_read_methylation_df = empty_df.clone();
 
             for motif in motifs.iter() {
+                let mod_type = motif.mod_type.to_pileup_code();
+
                 let fwd_indices = find_motif_indices_in_contig(&contig_seq, &motif);
 
                 let rev_indices =
@@ -154,14 +159,18 @@ pub fn calculate_contig_read_methylation_pattern(
                 let fwd_indices_series = Series::new("start".into(), fwd_indices);
                 let rev_indices_series = Series::new("start".into(), rev_indices);
 
-                let p_con = subpileup.clone().lazy().filter(
-                    (col("strand")
-                        .eq(lit("+"))
-                        .and(col("start").is_in(lit(fwd_indices_series.clone()))))
-                    .or(col("strand")
-                        .eq(lit("-"))
-                        .and(col("start").is_in(lit(rev_indices_series.clone())))),
-                );
+                let p_con = subpileup
+                    .clone()
+                    .lazy()
+                    .filter(col("mod_type").eq(lit(mod_type)))
+                    .filter(
+                        (col("strand")
+                            .eq(lit("+"))
+                            .and(col("start").is_in(lit(fwd_indices_series.clone()))))
+                        .or(col("strand")
+                            .eq(lit("-"))
+                            .and(col("start").is_in(lit(rev_indices_series.clone())))),
+                    );
 
                 let p_read_methylation = p_con
                     .group_by([col("contig")])
@@ -172,7 +181,7 @@ pub fn calculate_contig_read_methylation_pattern(
                     ])
                     .with_columns([
                         (lit(motif.sequence.clone())).alias("motif"),
-                        (lit(motif.mod_type.clone())).alias("mod_type"),
+                        (lit(mod_type.to_string())).alias("mod_type"),
                         (lit(motif.mod_position.clone() as i8)).alias("mod_position"),
                     ]);
 
@@ -202,22 +211,41 @@ pub fn calculate_contig_read_methylation_pattern(
     read_methylation_df
 }
 
-pub fn create_motifs(motifs: Vec<String>) -> Vec<Motif> {
-    let mut motifs_as_struct = Vec::new();
+pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>, String> {
+    let mut motifs = Vec::new();
 
-    for motif in motifs {
+    for motif in motifs_str {
         let parts: Vec<&str> = motif.split("_").collect();
+
+        if parts.len() != 3 {
+            return Err(format!(
+                "Invalid motif format '{}' encountered. Expected format: '<sequence>_<mod_type>_<mod_position>'",
+                motif
+            ));
+        }
 
         if parts.len() == 3 {
             let sequence = parts[0];
             let mod_type = parts[1];
-            let mod_position: u8 = parts[2].parse().unwrap();
+            let mod_position = match parts[2].parse::<u8>() {
+                Ok(pos) => pos,
+                Err(e) => {
+                    return Err(format!(
+                        "Failted to parse mod_position '{}' in motif '{}': {}",
+                        parts[2], motif, e
+                    ));
+                }
+            };
 
-            let motif = Motif::new(sequence, mod_type, mod_position);
-            motifs_as_struct.push(motif);
+            match Motif::new(sequence, mod_type, mod_position) {
+                Ok(motif) => motifs.push(motif),
+                Err(e) => {
+                    return Err(format!("Failed to create motif from '{}': {}", motif, e));
+                }
+            }
         }
     }
-    motifs_as_struct
+    Ok(motifs)
 }
 
 #[cfg(test)]
@@ -242,7 +270,7 @@ mod tests {
         let mut contig_map = ContigMap::new();
         contig_map.insert("contig_3".to_string(), "TGGACGATCCCGATC".to_string());
 
-        let motifs = vec![Motif::new("GATC", "a", 1)];
+        let motifs = vec![Motif::new("GATC", "a", 1).unwrap()];
 
         let contig_methylation_pattern =
             calculate_contig_read_methylation_pattern(contig_map, subpileups, motifs, 1);

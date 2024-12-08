@@ -1,5 +1,4 @@
 use clap::Parser;
-use core::panic;
 use humantime::format_duration;
 use indicatif::HumanDuration;
 use log::{error, info};
@@ -56,10 +55,22 @@ fn main() {
             info!("Motifs loaded");
             motifs
         }
-        _ => panic!("No motifs found"),
+        _ => {
+            error!("No motifs found");
+            process::exit(1)
+        }
     };
 
-    let motifs = create_motifs(motifs);
+    let motifs = match create_motifs(motifs) {
+        Ok(motifs) => {
+            info!("Successfully parsed motifs.");
+            motifs
+        }
+        Err(e) => {
+            error!("{}", e);
+            process::exit(1);
+        }
+    };
 
     info!("Loading pileup");
     let lf_pileup = load_pileup_lazy(&args.pileup).expect("Error loading pileup");
