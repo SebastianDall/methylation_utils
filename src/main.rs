@@ -1,3 +1,4 @@
+use anyhow::{Context, Result};
 use clap::Parser;
 use humantime::format_duration;
 use indicatif::HumanDuration;
@@ -16,7 +17,7 @@ use argparser::Args;
 mod processing;
 use processing::{calculate_contig_read_methylation_pattern, create_motifs, create_subpileups};
 
-fn main() {
+fn main() -> Result<()> {
     // let guard = pprof::ProfilerGuard::new(1000).unwrap();
     let total_duration = Instant::now();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -26,27 +27,22 @@ fn main() {
 
     env::set_var("POLARS_MAX_THREADS", &args.threads.to_string());
 
-    match env::var("POLARS_MAX_THREADS") {
-        Ok(_val) => {}
-        Err(e) => error!("WARNING: POLARS_MAX_THREADS is not set: {}", e),
+    if env::var("POLARS_MAX_THREADS").is_err() {
+        error!("WARNING: POLARS_MAX_THREADS is not set. This will hurt performance");
     }
 
     let outpath = Path::new(&args.output);
 
-    match outpath.extension() {
-        Some(ext) if ext == "tsv" => {
-            if let Some(parent) = outpath.parent() {
-                fs::create_dir_all(parent).expect("Cannot create output dir");
-            }
+    if let Some(ext) = outpath.extension() {
+        if ext != "tsv" {
+            anyhow::bail!("Incorrect file extension {:?}. Should be tsv", ext);
         }
-        Some(ext) => {
-            error!("Incorrect file extension: {:#?}. Should be tsv", ext);
-            process::exit(1);
+        if let Some(parent) = outpath.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Could not create parent directory: {:?}", parent))?;
         }
-        None => {
-            error!("No filename provided");
-            process::exit(1);
-        }
+    } else {
+        anyhow::bail!("No filename provided for output. Should be a .tsv file.");
     }
 
     let preparation_duration = Instant::now();
@@ -61,16 +57,8 @@ fn main() {
         }
     };
 
-    let motifs = match create_motifs(motifs) {
-        Ok(motifs) => {
-            info!("Successfully parsed motifs.");
-            motifs
-        }
-        Err(e) => {
-            error!("{}", e);
-            process::exit(1);
-        }
-    };
+    let motifs = create_motifs(motifs).context("Failed to parse motifs")?;
+    info!("Successfully parsed motifs.");
 
     info!("Loading pileup");
     let lf_pileup = load_pileup_lazy(&args.pileup).expect("Error loading pileup");
@@ -139,4 +127,5 @@ fn main() {
     //     let mut file = File::create("flamegraph.svg").unwrap();
     //     report.flamegraph(&mut file).unwrap();
     // }
+    Ok(())
 }

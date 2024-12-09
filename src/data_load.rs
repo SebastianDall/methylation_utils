@@ -1,13 +1,11 @@
-use polars::{
-    error::PolarsResult,
-    lazy::frame::{LazyCsvReader, LazyFileListReader, LazyFrame},
-};
+use anyhow::{Context, Result};
+use polars::lazy::frame::{LazyCsvReader, LazyFileListReader, LazyFrame};
 use seq_io::fasta::{Reader, Record};
-use std::{path::Path};
+use std::path::Path;
 
 use crate::types::ContigMap;
 
-pub fn load_pileup_lazy<P: AsRef<Path>>(path: P) -> PolarsResult<LazyFrame> {
+pub fn load_pileup_lazy<P: AsRef<Path>>(path: P) -> Result<LazyFrame> {
     let old_column_names: Vec<String> = (1..19).map(|c| format!("column_{}", c)).collect();
     let new_column_names = vec![
         "contig",
@@ -33,7 +31,8 @@ pub fn load_pileup_lazy<P: AsRef<Path>>(path: P) -> PolarsResult<LazyFrame> {
     let lf_pileup = LazyCsvReader::new(path)
         .with_has_header(false)
         .with_separator(b'\t')
-        .finish()?
+        .finish()
+        .context("Failed to finish CSV Reader")?
         .rename(&old_column_names, &new_column_names, true);
 
     Ok(lf_pileup)

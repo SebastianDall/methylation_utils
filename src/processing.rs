@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Context, Result};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 use log::{error, info};
 use motif::{find_motif_indices_in_contig, Motif};
@@ -8,6 +9,7 @@ use std::{
     fmt::Write,
     sync::{Arc, Mutex},
     time::Duration,
+    str::FromStr,
 };
 
 use crate::types::ContigMap;
@@ -211,41 +213,28 @@ pub fn calculate_contig_read_methylation_pattern(
     read_methylation_df
 }
 
-pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>, String> {
-    let mut motifs = Vec::new();
-
-    for motif in motifs_str {
+pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>> {
+    motifs_str.into_iter().map(|motif| {
         let parts: Vec<&str> = motif.split("_").collect();
 
         if parts.len() != 3 {
-            return Err(format!(
+            anyhow::bail!(
                 "Invalid motif format '{}' encountered. Expected format: '<sequence>_<mod_type>_<mod_position>'",
                 motif
-            ));
+            );
         }
 
-        if parts.len() == 3 {
             let sequence = parts[0];
             let mod_type = parts[1];
-            let mod_position = match parts[2].parse::<u8>() {
-                Ok(pos) => pos,
-                Err(e) => {
-                    return Err(format!(
-                        "Failted to parse mod_position '{}' in motif '{}': {}",
-                        parts[2], motif, e
-                    ));
-                }
-            };
+            let mod_position = u8::from_str(parts[2]).with_context(|| {
+                format!("Failed to parse mod_position '{}' in motif '{}'.", parts[2], motif)
+            })?;
 
-            match Motif::new(sequence, mod_type, mod_position) {
-                Ok(motif) => motifs.push(motif),
-                Err(e) => {
-                    return Err(format!("Failed to create motif from '{}': {}", motif, e));
-                }
-            }
-        }
-    }
-    Ok(motifs)
+            Motif::new(sequence, mod_type, mod_position).map_err(|e| anyhow!(e)).with_context(|| {
+                format!("Failed to create motif from '{}'", motif)
+            })
+        
+    }).collect()
 }
 
 #[cfg(test)]
@@ -365,4 +354,18 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_create_motifs_success() {
+        let motifs_args = vec!["GATC_a_1".to_string()];
+        let result = create_motifs(motifs_args);
+        assert!(result.is_ok(), "Expected Ok, but got err: {:?}", result.err());
+    }
+    #[test]
+    fn test_create_motifs_failure() {
+        let motifs_args = vec!["GATC_a_3".to_string()];
+        let result = create_motifs(motifs_args);
+        assert!(result.is_err(), "Expected Err, but got Ok: {:?}", result.ok());
+    }
+    
 }
