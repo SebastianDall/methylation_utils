@@ -1330,6 +1330,7 @@ dependencies = [
 name = "methylation_utils"
 version = "0.4.0"
 dependencies = [
+ "anyhow",
  "clap",
  "env_logger",
  "humantime",
