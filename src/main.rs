@@ -52,8 +52,7 @@ fn main() -> Result<()> {
             motifs
         }
         _ => {
-            error!("No motifs found");
-            process::exit(1)
+            anyhow::bail!("No motifs found");
         }
     };
 
@@ -61,10 +60,11 @@ fn main() -> Result<()> {
     info!("Successfully parsed motifs.");
 
     info!("Loading pileup");
-    let lf_pileup = load_pileup_lazy(&args.pileup).expect("Error loading pileup");
+    let lf_pileup = load_pileup_lazy(&args.pileup).context("Error loading pileup")?;
 
     info!("Loading assembly");
-    let contigs = load_contigs(&args.assembly).expect("Error loading assembly");
+    let contigs = load_contigs(&args.assembly)
+        .with_context(|| format!("Error loading assembly from path: '{}'", args.assembly))?;
     let contig_ids: Vec<String> = contigs.keys().cloned().collect();
 
     if contig_ids.len() == 0 {
@@ -80,7 +80,8 @@ fn main() -> Result<()> {
     };
 
     let subpileups =
-        create_subpileups(lf_pileup, contig_ids, args.min_valid_read_coverage, batches);
+        create_subpileups(lf_pileup, contig_ids, args.min_valid_read_coverage, batches)
+            .context("Unable to create subpileups.")?;
 
     let elapsed_preparation_time = preparation_duration.elapsed();
     info!(
@@ -92,7 +93,8 @@ fn main() -> Result<()> {
     info!("Finding contig methylation pattern");
     let finding_methylation_pattern_duration = Instant::now();
     let mut contig_methylation_pattern =
-        calculate_contig_read_methylation_pattern(contigs, subpileups, motifs, args.threads);
+        calculate_contig_read_methylation_pattern(contigs, subpileups, motifs, args.threads)
+            .context("Unable to find methyation pattern.")?;
     let elapsed_finding_methylation_pattern_duration =
         finding_methylation_pattern_duration.elapsed();
     info!(
@@ -101,18 +103,15 @@ fn main() -> Result<()> {
         format_duration(elapsed_finding_methylation_pattern_duration).to_string()
     );
 
-    match std::fs::File::create(outpath) {
-        Ok(mut f) => {
-            CsvWriter::new(&mut f)
-                .include_header(true)
-                .with_separator(b'\t')
-                .finish(&mut contig_methylation_pattern)
-                .unwrap();
-        }
-        Err(e) => {
-            println!("Error writing tsv file: {:?}", e);
-        }
-    };
+    let mut outfile = std::fs::File::create(outpath)
+        .with_context(|| format!("Failed to create file at: {:?}", outpath))?;
+
+    CsvWriter::new(&mut outfile)
+        .include_header(true)
+        .with_separator(b'\t')
+        .finish(&mut contig_methylation_pattern)
+        .with_context(|| format!("Error writing tsv"))?;
+
     let elapsed_total_duration = total_duration.elapsed();
     info!(
         "Total time: {} - ({})",

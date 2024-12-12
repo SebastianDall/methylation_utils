@@ -19,7 +19,7 @@ pub fn create_subpileups(
     contig_ids: Vec<String>,
     min_valid_read_coverage: u32,
     batches: usize,
-) -> Vec<DataFrame> {
+) -> Result<Vec<DataFrame>> {
     info!("Creating subpileups");
 
     let tasks = contig_ids.len() as u64;
@@ -56,9 +56,12 @@ pub fn create_subpileups(
                 / col("N_valid_cov").cast(DataType::Float64))
             .alias("motif_mean")])
             .collect()
-            .expect("Error collecting pileup");
+            .context("Error collecting pileup")?;
 
-        assert!(!pileup_batch.is_empty(), "pileup is empty after filtering");
+        if pileup_batch.is_empty() {
+            error!("Pileup is empty after filtering");
+            continue;
+        }
 
         let mut subpileups = pileup_batch
             .partition_by(["contig"], true)
@@ -72,7 +75,7 @@ pub fn create_subpileups(
     }
 
     info!("Number of subpileups generated {:?}", subpileup_vec.len());
-    subpileup_vec
+    Ok(subpileup_vec)
 }
 
 pub fn calculate_contig_read_methylation_pattern(
@@ -80,7 +83,7 @@ pub fn calculate_contig_read_methylation_pattern(
     subpileups: Vec<DataFrame>,
     motifs: Vec<Motif>,
     num_threads: usize,
-) -> DataFrame {
+) -> Result<DataFrame> {
     env::set_var("POLARS_MAX_THREADS", "1");
 
     rayon::ThreadPoolBuilder::new()
@@ -206,11 +209,11 @@ pub fn calculate_contig_read_methylation_pattern(
     let final_results: Vec<LazyFrame> = results.lock().unwrap().clone();
 
     let read_methylation_df = concat(&final_results, UnionArgs::default())
-        .unwrap()
+        .context("Unable to concatenate result dataframes.")?
         .collect()
-        .unwrap();
+        .context("Unable to collect result dataframes.")?;
 
-    read_methylation_df
+    Ok(read_methylation_df)
 }
 
 pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>> {
