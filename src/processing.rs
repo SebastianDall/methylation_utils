@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use indicatif::{ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use log::{error, info};
 use motif::{find_motif_indices_in_contig, Motif};
 use polars::{datatypes::DataType, frame::DataFrame, lazy::frame::LazyFrame, prelude::*};
@@ -24,7 +24,6 @@ pub fn create_subpileups(
 
     let tasks = contig_ids.len() as u64;
     let pb = ProgressBar::new(tasks);
-    pb.set_draw_target(ProgressDrawTarget::stdout());
     pb.set_style(
         ProgressStyle::with_template(
             "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}",
@@ -93,7 +92,6 @@ pub fn calculate_contig_read_methylation_pattern(
 
     let tasks = subpileups.len() as u64;
     let pb = ProgressBar::new(tasks);
-    pb.set_draw_target(ProgressDrawTarget::stdout());
     pb.set_style(
         ProgressStyle::with_template(
             "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
@@ -269,7 +267,7 @@ mod tests {
         ];
 
         let contig_methylation_pattern =
-            calculate_contig_read_methylation_pattern(contig_map, subpileups, motifs, 1);
+            calculate_contig_read_methylation_pattern(contig_map, subpileups, motifs, 1).unwrap();
 
         println!("{:#?}", contig_methylation_pattern);
 
@@ -301,7 +299,7 @@ mod tests {
 
         let contig_ids = vec!["contig_3".to_string(), "contig_4".to_string()];
 
-        let subpileups_1 = create_subpileups(pileup.clone(), contig_ids.clone(), 3 as u32, 2);
+        let subpileups_1 = create_subpileups(pileup.clone(), contig_ids.clone(), 3 as u32, 2).unwrap();
 
         assert_eq!(subpileups_1.len(), 2);
 
@@ -330,7 +328,7 @@ mod tests {
             }
         }
 
-        let subpileups_2 = create_subpileups(pileup, contig_ids, 1 as u32, 2);
+        let subpileups_2 = create_subpileups(pileup, contig_ids, 1 as u32, 2).unwrap();
 
         for subpileup in subpileups_2 {
             let contig_id = match subpileup.column("contig") {

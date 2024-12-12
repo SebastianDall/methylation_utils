@@ -4,7 +4,7 @@ use humantime::format_duration;
 use indicatif::HumanDuration;
 use log::{error, info};
 use polars::prelude::*;
-use std::{env, fs, path::Path, process, time::Instant};
+use std::{env, fs, path::Path, time::Instant};
 
 mod data_load;
 use data_load::{load_contigs, load_pileup_lazy};
