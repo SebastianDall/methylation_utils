@@ -68,8 +68,7 @@ fn main() -> Result<()> {
     let contig_ids: Vec<String> = contigs.keys().cloned().collect();
 
     if contig_ids.len() == 0 {
-        error!("No contigs are loaded!");
-        process::exit(1);
+        anyhow::bail!("No contigs are loaded!");
     }
 
     let batches = if args.batches == 0 {
