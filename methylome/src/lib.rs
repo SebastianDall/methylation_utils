@@ -2,11 +2,11 @@ use regex::Regex;
 
 mod iupac;
 mod modtype;
-mod motif;
+pub mod motif;
 
 use iupac::IupacBase;
 use modtype::ModType;
-use motif::Motif;
+pub use motif::Motif;
 
 pub fn find_motif_indices_in_contig(contig: &str, motif: &Motif) -> Vec<u32> {
     let regex_str = motif.to_regex();

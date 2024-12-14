@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use log::{error, info};
-use motif::{find_motif_indices_in_contig, Motif};
+use methylome::{find_motif_indices_in_contig, motif::Motif};
 use polars::{datatypes::DataType, frame::DataFrame, lazy::frame::LazyFrame, prelude::*};
 use rayon::prelude::*;
 use std::{
@@ -231,7 +231,7 @@ pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>> {
                 format!("Failed to parse mod_position '{}' in motif '{}'.", parts[2], motif)
             })?;
 
-            Motif::new(sequence, mod_type, mod_position).map_err(|e| anyhow!(e)).with_context(|| {
+            Motif::new(sequence, mod_type, mod_position).with_context(|| {
                 format!("Failed to create motif from '{}'", motif)
             })
         

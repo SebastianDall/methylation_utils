@@ -8,13 +8,13 @@ description = "Cli tool for fast lookup in pileup for motif methylation"
 license = "MIT" 
 repository = "https://github.com/SebastianDall/methylation_utils"
 [workspace]
-members = ["motif", "."]
+members = ["methylome", "."]
 
 [dependencies]
 clap = { version = "4.5.20", features = ["derive"] }
 polars = { version = "0.44.0", features = ["lazy","is_in", "partition_by", "bigidx"] }
 seq_io = "0.3.2"
-motif = { path = "motif"}
+methylome = { path = "methylome"}
 rayon = "1.10.0"
 indicatif = {version = "0.17.8", features = ["rayon"]}
 log = "0.4.22"
