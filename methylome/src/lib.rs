@@ -1,10 +1,10 @@
 use regex::Regex;
 
-mod iupac;
+pub mod iupac;
 pub mod modtype;
 pub mod motif;
 
-use iupac::IupacBase;
+pub use iupac::IupacBase;
 pub use modtype::ModType;
 pub use motif::Motif;
 
