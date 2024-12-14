@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use log::{error, info};
 use methylome::{find_motif_indices_in_contig, motif::Motif};
@@ -183,7 +183,7 @@ pub fn calculate_contig_read_methylation_pattern(
                         (col("N_valid_cov").cast(DataType::Float64).mean()).alias("mean_read_cov"),
                     ])
                     .with_columns([
-                        (lit(motif.sequence.clone())).alias("motif"),
+                        (lit(motif.sequence_to_string())).alias("motif"),
                         (lit(mod_type.to_string())).alias("mod_type"),
                         (lit(motif.mod_position.clone() as i8)).alias("mod_position"),
                     ]);
