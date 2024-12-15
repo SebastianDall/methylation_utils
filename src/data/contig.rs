@@ -1,17 +1,15 @@
-use std::{collections::HashMap, fmt::Display};
+use std::collections::HashMap;
 
 use anyhow::{bail, Result};
 
-mod data;
-
-use crate::ModType;
-use data::methylation::*;
+use super::methylation::*;
+use methylome::{ModType, Strand};
 
 pub struct Contig {
     pub id: String,
     pub sequence: String,
     sequence_len: usize,
-    methylated_positions: HashMap<(usize, Strand, ModType), MethylationCoverage>,
+    pub methylated_positions: HashMap<(usize, Strand, ModType), MethylationCoverage>,
 }
 
 impl Contig {
@@ -99,35 +97,19 @@ mod tests {
             contig.get_methylated_positions(&positions, Strand::Positive, ModType::SixMA);
 
         // Ensure records match the expected values
-        let expected = vec![
-            Some(&MethylationCoverage {
-                n_modified: 1,
-                n_valid_cov: 1,
-            }),
-            Some(&MethylationCoverage {
-                n_modified: 1,
-                n_valid_cov: 1,
-            }),
-        ];
+        let binding = MethylationCoverage::new(1, 1).unwrap();
+        let expected = vec![Some(&binding), Some(&binding)];
 
         assert_eq!(meth_records, expected);
 
         let meth_records = contig.get_methylated_positions(&[13], Strand::Negative, ModType::SixMA);
-        let expected = vec![Some(&MethylationCoverage {
-            n_modified: 1,
-            n_valid_cov: 1,
-        })];
+        let expected = vec![Some(&binding)];
 
         assert_eq!(meth_records, expected);
 
+        let binding = MethylationCoverage::new(3, 3).unwrap();
         let meth_records = contig.get_methylated_positions(&[8], Strand::Positive, ModType::FiveMC);
-        assert_eq!(
-            meth_records,
-            vec![Some(&MethylationCoverage {
-                n_modified: 3,
-                n_valid_cov: 3
-            })]
-        )
+        assert_eq!(meth_records, vec![Some(&binding)])
     }
 
     #[test]
@@ -135,43 +117,12 @@ mod tests {
         let mut contig = Contig::new("1".to_string(), "GATC".to_string());
 
         let result = contig.add_methylation(
-            3,
+            4,
             Strand::Positive,
             ModType::SixMA,
-            MethylationCoverage {
-                n_modified: 1,
-                n_valid_cov: 1,
-            },
+            MethylationCoverage::new(1, 1).unwrap(),
         );
 
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_methylation_coverage_valid() -> Result<()> {
-        // Test valid inputs
-        let coverage = MethylationCoverage::new(5, 10)?;
-        assert_eq!(coverage.n_modified, 5);
-        assert_eq!(coverage.n_valid_cov, 10);
-
-        let coverage = MethylationCoverage::new(0, 0)?;
-        assert_eq!(coverage.n_modified, 0);
-        assert_eq!(coverage.n_valid_cov, 0);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_methylation_coverage_invalid() {
-        // Test invalid input: n_valid_cov < n_modified
-        let result = MethylationCoverage::new(10, 5);
-
         assert!(result.is_err());
-        if let Err(e) = result {
-            assert_eq!(
-                e.to_string(),
-                "Invalid coverage: n_valid_cov (5) cannot be less than n_modified (10)"
-            );
-        }
     }
 }
