@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub enum Strand {
     Positive,
