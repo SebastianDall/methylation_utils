@@ -6,15 +6,14 @@ use log::{error, info};
 use polars::prelude::*;
 use std::{env, fs, path::Path, time::Instant};
 
+mod argparser;
+mod data;
 mod data_load;
-use data_load::{load_contigs, load_pileup_lazy};
-
+mod processing;
 mod types;
 
-mod argparser;
 use argparser::Args;
-
-mod processing;
+use data_load::{load_contigs, load_pileup_lazy};
 use processing::{calculate_contig_read_methylation_pattern, create_motifs, create_subpileups};
 
 fn main() -> Result<()> {
