@@ -1,14 +1,14 @@
 use regex::Regex;
 
-pub mod contig_methylation;
 pub mod iupac;
 pub mod modtype;
 pub mod motif;
+pub mod strand;
 
 pub use iupac::IupacBase;
 pub use modtype::ModType;
 pub use motif::Motif;
-// pub use contig_methylation
+pub use strand::Strand;
 
 pub fn find_motif_indices_in_contig(contig: &str, motif: &Motif) -> Vec<u32> {
     let regex_str = motif.to_regex();
