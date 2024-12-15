@@ -18,7 +18,7 @@ use std::fmt;
 /// let mod_type = ModType::SixMA;
 /// assert_eq!(mod_type.to_pileup_code(), "a");
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum ModType {
     SixMA,
     FiveMC,
