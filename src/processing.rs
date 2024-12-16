@@ -133,26 +133,42 @@ pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>> {
 
 #[cfg(test)]
 mod tests {
+    use tempfile::NamedTempFile;
+
+    use crate::data::contig::Contig;
+
     use super::*;
 
     #[test]
     fn test_calculate_methylation() {
-        let subpileup = df!(
-            "contig" => ["contig_3","contig_3","contig_3","contig_3","contig_3"],
-            "strand" => ["+", "+", "+", "-", "-"],
-            "mod_type" => ["a", "m", "a", "a", "a"],
-            "start" => [6, 8, 12, 7, 13],
-            "N_modified" => [15, 20, 5, 20 ,5],
-            "N_valid_cov" => [15, 20, 20, 20, 20],
-            "motif_mean" => [1.0, 1.0, 0.25, 1.0, 0.25]
-        )
-        .expect("Could not initialize dataframe");
+        let mut pileup_file = NamedTempFile::new().unwrap();
+        writeln!(
+            pileup_file,
+            "contig_3\t6\t1\tm\t133\t+\t0\t1\t255,0,0\t15\t0.00\t15\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_3\t8\t1\tm\t133\t+\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_3\t12\t1\tm\t133\t+\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_3\t7\t1\tm\t133\t-\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_3\t13\t1\tm\t133\t-\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+        )?;
 
-        let subpileups = vec![subpileup];
 
-        let mut contig_map = ContigMap::new();
-        contig_map.insert("contig_3".to_string(), "TGGACGATCCCGATC".to_string());
 
+        let mut workspace = GenomeWorkspace::new();
+
+        // Add a mock contig to the workspace
+        workspace.add_contig(Contig::new("contig_3".to_string(), "TGGACGATCCCGATC".to_string()))?;
         let motifs = vec![
             Motif::new("GATC", "a", 1).unwrap(),
             Motif::new("GATC", "m", 3).unwrap(),
@@ -160,11 +176,12 @@ mod tests {
         ];
 
         let contig_methylation_pattern =
-            calculate_contig_read_methylation_pattern(contig_map, subpileups, motifs, 1).unwrap();
+            calculate_contig_read_methylation_pattern(workspace,  motifs, 1).unwrap();
 
-        println!("{:#?}", contig_methylation_pattern);
+        
 
-        let expected_result = Column::new("median".into(), [0.625, 1.0]);
+        let expected_result = vec![0.625, 1.0];
+        let meth_result = contig_methylation_pattern.iter().map(|res| res.median).collect();
         assert_eq!(
             contig_methylation_pattern.column("median").unwrap(),
             &expected_result
