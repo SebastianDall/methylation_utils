@@ -10,13 +10,13 @@ pub use modtype::ModType;
 pub use motif::Motif;
 pub use strand::Strand;
 
-pub fn find_motif_indices_in_contig(contig: &str, motif: &Motif) -> Vec<u32> {
+pub fn find_motif_indices_in_contig(contig: &str, motif: &Motif) -> Vec<usize> {
     let regex_str = motif.to_regex();
     let re = Regex::new(&regex_str).expect("Expected regex pattern");
 
     let indices = re
         .find_iter(contig)
-        .map(|m| m.start() as u32 + motif.mod_position as u32)
+        .map(|m| m.start() as usize + motif.mod_position as usize)
         .collect();
 
     indices
