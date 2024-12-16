@@ -2,23 +2,21 @@ use anyhow::{Context, Result};
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressState, ProgressStyle};
 use log::{error, info};
 use methylome::{find_motif_indices_in_contig, motif::Motif};
-use polars::{datatypes::DataType, frame::DataFrame, lazy::frame::LazyFrame, prelude::*};
 use rayon::prelude::*;
 use std::{
-    env,
     fmt::Write,
-    sync::{Arc, Mutex},
+    sync::{Arc},
     time::Duration,
     str::FromStr,
 };
 
-use crate::data::GenomeWorkspace;
+use crate::data::{methylation::MethylationCoverage, GenomeWorkspace};
 
-struct MotifMethylationDegree {
-    contig: String,
-    motif: Motif,
-    median: f64,
-    mean_read_coverage: f64,
+pub struct MotifMethylationDegree {
+    pub contig: String,
+    pub motif: Motif,
+    pub median: f64,
+    pub mean_read_coverage: f64,
 }
 
 pub fn calculate_contig_read_methylation_pattern(
@@ -47,7 +45,7 @@ pub fn calculate_contig_read_methylation_pattern(
 
     let motifs = Arc::new(motifs);
 
-    let results: <Vec<MotifMethylationDegree>> = contigs.contigs.par_iter().flat_map()
+    let results: Vec<MotifMethylationDegree> = contigs.contigs.par_iter().flat_map(|(contig_id, contig)| {
      let contig_seq = &contig.sequence;
 
      let mut local_results = Vec::new();
@@ -55,24 +53,60 @@ pub fn calculate_contig_read_methylation_pattern(
      for motif in motifs.iter() {
          let mod_type = motif.mod_type;
 
-         let fwd_indices = find_motif_indices_in_contig(&contig_seq, motif);
-         let rev_indices = find_motif_indices_in_contig(&contig_seq, &motif.reverse_complement());
+         let fwd_indices: Vec<usize> = find_motif_indices_in_contig(&contig_seq, motif);
+         let rev_indices: Vec<usize> = find_motif_indices_in_contig(&contig_seq, &motif.reverse_complement());
 
          if fwd_indices.is_empty() && rev_indices.is_empty() {
              continue;
          }
 
-         
+         let mut fwd_methylation = contig.get_methylated_positions(&fwd_indices, methylome::Strand::Positive, mod_type);
+         let mut rev_methylation = contig.get_methylated_positions(&rev_indices, methylome::Strand::Negative, mod_type);
 
-         
-         
+         fwd_methylation.append(&mut rev_methylation);
+
+         let methylation_data: Vec<MethylationCoverage> = fwd_methylation.into_iter().filter_map(|maybe_cov| maybe_cov.cloned()).collect();
+
+         if methylation_data.is_empty() {
+             continue;
+         }
+
+         let mean_read_coverage = {
+             let total_cov: u64 = methylation_data.iter().map(|cov| cov.get_n_valid_cov() as u64).sum();
+             total_cov as f64 / methylation_data.len() as f64
+         };
+
+         let mut fractions: Vec<f64> = methylation_data
+            .iter()
+            .map(|cov| cov.fraction_modified())
+            .collect();
+
+        fractions.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median = if fractions.len() % 2 == 0 {
+            let mid = fractions.len() / 2;
+            (fractions[mid - 1] + fractions[mid]) / 2.0
+        } else {
+            fractions[fractions.len() / 2]
+        };
+
+         local_results.push(MotifMethylationDegree {
+             contig: contig_id.clone(),
+             motif: motif.clone(),
+             median,
+             mean_read_coverage,
+         })
      }
+
+     pb.inc(1);
+
+     local_results
+
         
-    });
+    }).collect();
 
-    
+    pb.finish_with_message("Finished processing all contigs.");
 
-    Ok()
+    Ok(results)
 }
 
 pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>> {
