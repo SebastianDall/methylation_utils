@@ -14,7 +14,7 @@ mod types;
 
 use argparser::Args;
 use data_load::{load_contigs, load_pileup_lazy};
-use processing::{calculate_contig_read_methylation_pattern, create_motifs, create_subpileups};
+use processing::{calculate_contig_read_methylation_pattern, create_motifs};
 
 fn main() -> Result<()> {
     // let guard = pprof::ProfilerGuard::new(1000).unwrap();
@@ -64,23 +64,23 @@ fn main() -> Result<()> {
     info!("Loading assembly");
     let contigs = load_contigs(&args.assembly)
         .with_context(|| format!("Error loading assembly from path: '{}'", args.assembly))?;
-    let contig_ids: Vec<String> = contigs.keys().cloned().collect();
+    // let contig_ids: Vec<String> = contigs.keys().cloned().collect();
 
-    if contig_ids.len() == 0 {
-        anyhow::bail!("No contigs are loaded!");
-    }
+    // if contig_ids.len() == 0 {
+    //     anyhow::bail!("No contigs are loaded!");
+    // }
 
-    let batches = if args.batches == 0 {
-        info!("Loading pileup without batching");
-        contig_ids.len()
-    } else {
-        info!("Loading pileup with {} contigs at a time", args.batches);
-        args.batches
-    };
+    // let batches = if args.batches == 0 {
+    //     info!("Loading pileup without batching");
+    //     contig_ids.len()
+    // } else {
+    //     info!("Loading pileup with {} contigs at a time", args.batches);
+    //     args.batches
+    // };
 
-    let subpileups =
-        create_subpileups(lf_pileup, contig_ids, args.min_valid_read_coverage, batches)
-            .context("Unable to create subpileups.")?;
+    // let subpileups =
+    //     create_subpileups(lf_pileup, contig_ids, args.min_valid_read_coverage, batches)
+    //         .context("Unable to create subpileups.")?;
 
     let elapsed_preparation_time = preparation_duration.elapsed();
     info!(
@@ -91,9 +91,9 @@ fn main() -> Result<()> {
 
     info!("Finding contig methylation pattern");
     let finding_methylation_pattern_duration = Instant::now();
-    let mut contig_methylation_pattern =
-        calculate_contig_read_methylation_pattern(contigs, subpileups, motifs, args.threads)
-            .context("Unable to find methyation pattern.")?;
+    // let mut contig_methylation_pattern =
+    // calculate_contig_read_methylation_pattern(contigs, subpileups, motifs, args.threads)
+    //     .context("Unable to find methyation pattern.")?;
     let elapsed_finding_methylation_pattern_duration =
         finding_methylation_pattern_duration.elapsed();
     info!(
@@ -102,14 +102,14 @@ fn main() -> Result<()> {
         format_duration(elapsed_finding_methylation_pattern_duration).to_string()
     );
 
-    let mut outfile = std::fs::File::create(outpath)
-        .with_context(|| format!("Failed to create file at: {:?}", outpath))?;
+    // let mut outfile = std::fs::File::create(outpath)
+    //     .with_context(|| format!("Failed to create file at: {:?}", outpath))?;
 
-    CsvWriter::new(&mut outfile)
-        .include_header(true)
-        .with_separator(b'\t')
-        .finish(&mut contig_methylation_pattern)
-        .with_context(|| format!("Error writing tsv"))?;
+    // CsvWriter::new(&mut outfile)
+    //     .include_header(true)
+    //     .with_separator(b'\t')
+    //     .finish(&mut contig_methylation_pattern)
+    //     .with_context(|| format!("Error writing tsv"))?;
 
     let elapsed_total_duration = total_duration.elapsed();
     info!(
