@@ -21,6 +21,18 @@ impl MethylationCoverage {
             n_valid_cov,
         })
     }
+
+    pub fn get_n_modified(&self) -> u32 {
+        self.n_modified
+    }
+
+    pub fn get_n_valid_cov(&self) -> u32 {
+        self.n_valid_cov
+    }
+
+    pub fn fraction_modified(&self) -> f64 {
+        self.n_modified as f64 / self.n_valid_cov as f64
+    }
 }
 
 #[cfg(test)]
