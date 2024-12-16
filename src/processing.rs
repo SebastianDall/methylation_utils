@@ -1,12 +1,10 @@
 use anyhow::{Context, Result};
-use indicatif::{ParallelProgressIterator, ProgressBar, ProgressState, ProgressStyle};
-use log::{error, info};
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use methylome::{find_motif_indices_in_contig, motif::Motif};
 use rayon::prelude::*;
 use std::{
     fmt::Write,
     sync::{Arc},
-    time::Duration,
     str::FromStr,
 };
 

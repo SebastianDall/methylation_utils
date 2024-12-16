@@ -14,7 +14,6 @@ mod argparser;
 mod data;
 mod data_load;
 mod processing;
-mod types;
 
 use argparser::Args;
 use data_load::load_contigs;
@@ -78,6 +77,9 @@ fn main() -> Result<()> {
 
     info!("Loading methylation from pileup.");
     contigs.populate_methylation_from_pileup(args.pileup, args.min_valid_read_coverage)?;
+
+    info!("Removing contigs with no methylation");
+    contigs.prune_empty_contigs();
 
     let elapsed_preparation_time = preparation_duration.elapsed();
     info!(
