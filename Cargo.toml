@@ -12,7 +12,6 @@ members = ["methylome", "."]
 
 [dependencies]
 clap = { version = "4.5.20", features = ["derive"] }
-polars = { version = "0.44.0", features = ["lazy","is_in", "partition_by", "bigidx"] }
 seq_io = "0.3.2"
 methylome = { path = "methylome"}
 rayon = "1.10.0"

@@ -2,9 +2,13 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use humantime::format_duration;
 use indicatif::HumanDuration;
-use log::{error, info};
-use polars::prelude::*;
-use std::{env, fs, path::Path, time::Instant};
+use log::info;
+use std::{
+    fs,
+    io::{BufWriter, Write},
+    path::Path,
+    time::Instant,
+};
 
 mod argparser;
 mod data;
@@ -13,7 +17,7 @@ mod processing;
 mod types;
 
 use argparser::Args;
-use data_load::{load_contigs, load_pileup_lazy};
+use data_load::load_contigs;
 use processing::{calculate_contig_read_methylation_pattern, create_motifs};
 
 fn main() -> Result<()> {
@@ -23,12 +27,6 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
     info!("Running methylation_utils with {} threads", &args.threads);
-
-    env::set_var("POLARS_MAX_THREADS", &args.threads.to_string());
-
-    if env::var("POLARS_MAX_THREADS").is_err() {
-        error!("WARNING: POLARS_MAX_THREADS is not set. This will hurt performance");
-    }
 
     let outpath = Path::new(&args.output);
 
@@ -58,17 +56,13 @@ fn main() -> Result<()> {
     let motifs = create_motifs(motifs).context("Failed to parse motifs")?;
     info!("Successfully parsed motifs.");
 
-    info!("Loading pileup");
-    let lf_pileup = load_pileup_lazy(&args.pileup).context("Error loading pileup")?;
-
     info!("Loading assembly");
-    let contigs = load_contigs(&args.assembly)
+    let mut contigs = load_contigs(&args.assembly)
         .with_context(|| format!("Error loading assembly from path: '{}'", args.assembly))?;
-    // let contig_ids: Vec<String> = contigs.keys().cloned().collect();
 
-    // if contig_ids.len() == 0 {
-    //     anyhow::bail!("No contigs are loaded!");
-    // }
+    if contigs.contigs.len() == 0 {
+        anyhow::bail!("No contigs are loaded!");
+    }
 
     // let batches = if args.batches == 0 {
     //     info!("Loading pileup without batching");
@@ -82,6 +76,9 @@ fn main() -> Result<()> {
     //     create_subpileups(lf_pileup, contig_ids, args.min_valid_read_coverage, batches)
     //         .context("Unable to create subpileups.")?;
 
+    info!("Loading methylation from pileup.");
+    contigs.populate_methylation_from_pileup(args.pileup, args.min_valid_read_coverage)?;
+
     let elapsed_preparation_time = preparation_duration.elapsed();
     info!(
         "Data preparation took: {} - ({})",
@@ -91,9 +88,10 @@ fn main() -> Result<()> {
 
     info!("Finding contig methylation pattern");
     let finding_methylation_pattern_duration = Instant::now();
-    // let mut contig_methylation_pattern =
-    // calculate_contig_read_methylation_pattern(contigs, subpileups, motifs, args.threads)
-    //     .context("Unable to find methyation pattern.")?;
+    let mut contig_methylation_pattern =
+        calculate_contig_read_methylation_pattern(contigs, motifs, args.threads)
+            .context("Unable to find methyation pattern.")?;
+
     let elapsed_finding_methylation_pattern_duration =
         finding_methylation_pattern_duration.elapsed();
     info!(
@@ -102,14 +100,35 @@ fn main() -> Result<()> {
         format_duration(elapsed_finding_methylation_pattern_duration).to_string()
     );
 
-    // let mut outfile = std::fs::File::create(outpath)
-    //     .with_context(|| format!("Failed to create file at: {:?}", outpath))?;
+    contig_methylation_pattern.sort_by(|a, b| a.contig.cmp(&b.contig));
 
-    // CsvWriter::new(&mut outfile)
-    //     .include_header(true)
-    //     .with_separator(b'\t')
-    //     .finish(&mut contig_methylation_pattern)
-    //     .with_context(|| format!("Error writing tsv"))?;
+    let outfile = std::fs::File::create(outpath)
+        .with_context(|| format!("Failed to create file at: {:?}", outpath))?;
+    let mut writer = BufWriter::new(outfile);
+
+    writeln!(
+        writer,
+        "contig\tmotif\tmod_type\tmod_position\tmedian\tmean_read_coverage"
+    )?;
+
+    for entry in &contig_methylation_pattern {
+        let motif_sequence = entry.motif.sequence_to_string();
+        let mod_type_str = entry.motif.mod_type.to_pileup_code();
+        let mod_position = entry.motif.mod_position;
+
+        writeln!(
+            writer,
+            "{}\t{}\t{}\t{}\t{}\t{}",
+            entry.contig,
+            motif_sequence,
+            mod_type_str,
+            mod_position,
+            entry.median,
+            entry.mean_read_coverage
+        )?;
+
+        writer.flush()?;
+    }
 
     let elapsed_total_duration = total_duration.elapsed();
     info!(
