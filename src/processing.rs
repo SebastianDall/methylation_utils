@@ -14,7 +14,8 @@ pub struct MotifMethylationDegree {
     pub contig: String,
     pub motif: Motif,
     pub median: f64,
-    pub mean_read_coverage: f64,
+    pub mean_read_cov: f64,
+    pub n_motif_obs: u32,
 }
 
 pub fn calculate_contig_read_methylation_pattern(
@@ -69,7 +70,9 @@ pub fn calculate_contig_read_methylation_pattern(
              continue;
          }
 
-         let mean_read_coverage = {
+        let n_motif_obs = methylation_data.len() as u32;
+         
+         let mean_read_cov = {
              let total_cov: u64 = methylation_data.iter().map(|cov| cov.get_n_valid_cov() as u64).sum();
              total_cov as f64 / methylation_data.len() as f64
          };
@@ -91,7 +94,8 @@ pub fn calculate_contig_read_methylation_pattern(
              contig: contig_id.clone(),
              motif: motif.clone(),
              median,
-             mean_read_coverage,
+             mean_read_cov,
+             n_motif_obs,
          })
      }
 
@@ -134,17 +138,18 @@ pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>> {
 #[cfg(test)]
 mod tests {
     use tempfile::NamedTempFile;
+    use std::io::{Write};
 
     use crate::data::contig::Contig;
 
     use super::*;
 
     #[test]
-    fn test_calculate_methylation() {
+    fn test_calculate_methylation() -> Result<()> {
         let mut pileup_file = NamedTempFile::new().unwrap();
         writeln!(
             pileup_file,
-            "contig_3\t6\t1\tm\t133\t+\t0\t1\t255,0,0\t15\t0.00\t15\t123\t0\t0\t6\t0\t0"
+            "contig_3\t6\t1\ta\t133\t+\t0\t1\t255,0,0\t15\t0.00\t15\t123\t0\t0\t6\t0\t0"
         )?;
         writeln!(
             pileup_file,
@@ -152,15 +157,15 @@ mod tests {
         )?;
         writeln!(
             pileup_file,
-            "contig_3\t12\t1\tm\t133\t+\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+            "contig_3\t12\t1\ta\t133\t+\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
         )?;
         writeln!(
             pileup_file,
-            "contig_3\t7\t1\tm\t133\t-\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
+            "contig_3\t7\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
         )?;
         writeln!(
             pileup_file,
-            "contig_3\t13\t1\tm\t133\t-\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+            "contig_3\t13\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
         )?;
 
 
@@ -168,30 +173,39 @@ mod tests {
         let mut workspace = GenomeWorkspace::new();
 
         // Add a mock contig to the workspace
-        workspace.add_contig(Contig::new("contig_3".to_string(), "TGGACGATCCCGATC".to_string()))?;
+        workspace.add_contig(Contig::new("contig_3".to_string(), "TGGACGATCCCGATC".to_string())).unwrap();
         let motifs = vec![
             Motif::new("GATC", "a", 1).unwrap(),
             Motif::new("GATC", "m", 3).unwrap(),
             Motif::new("GATC", "21839", 3).unwrap(),
         ];
 
+        workspace.populate_methylation_from_pileup(pileup_file, 1).unwrap();
+
         let contig_methylation_pattern =
             calculate_contig_read_methylation_pattern(workspace,  motifs, 1).unwrap();
 
         
 
-        let expected_result = vec![0.625, 1.0];
-        let meth_result = contig_methylation_pattern.iter().map(|res| res.median).collect();
+        let expected_median_result = vec![0.625, 1.0];
+        let meth_result: Vec<f64> = contig_methylation_pattern.iter().map(|res| res.median).collect();
         assert_eq!(
-            contig_methylation_pattern.column("median").unwrap(),
-            &expected_result
+            meth_result,
+            expected_median_result
         );
 
-        let expected_mean_read_cov = Column::new("mean_read_cov".into(), [18.75, 20.0]);
+        let expected_mean_read_cov = vec![18.75, 20.0];
+        let meth_result: Vec<f64> = contig_methylation_pattern.iter().map(|res| res.mean_read_cov).collect();
         assert_eq!(
-            contig_methylation_pattern.column("mean_read_cov").unwrap(),
-            &expected_mean_read_cov
-        )
+            meth_result,
+            expected_mean_read_cov
+        );
+
+        let expected_n_motif_obs = vec![4, 1];
+        let meth_result: Vec<u32> = contig_methylation_pattern.iter().map(|res| res.n_motif_obs).collect();
+        assert_eq!(meth_result, expected_n_motif_obs);
+
+        Ok(())
     }
 
     #[test]

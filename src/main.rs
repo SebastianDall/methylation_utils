@@ -110,7 +110,7 @@ fn main() -> Result<()> {
 
     writeln!(
         writer,
-        "contig\tmotif\tmod_type\tmod_position\tmedian\tmean_read_coverage"
+        "contig\tmotif\tmod_type\tmod_position\tmedian\tmean_read_cov"
     )?;
 
     for entry in &contig_methylation_pattern {
@@ -126,7 +126,7 @@ fn main() -> Result<()> {
             mod_type_str,
             mod_position,
             entry.median,
-            entry.mean_read_coverage
+            entry.mean_read_cov
         )?;
 
         writer.flush()?;
