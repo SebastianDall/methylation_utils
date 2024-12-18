@@ -16,6 +16,7 @@ pub struct MotifMethylationDegree {
     pub median: f64,
     pub mean_read_cov: f64,
     pub n_motif_obs: u32,
+    pub motif_occurences_total: u32,
 }
 
 pub fn calculate_contig_read_methylation_pattern(
@@ -59,6 +60,9 @@ pub fn calculate_contig_read_methylation_pattern(
              continue;
          }
 
+         // This is the actual number of motifs in the contig
+         let motif_occurences_total = fwd_indices.len() as u32 + rev_indices.len() as u32;
+
          let mut fwd_methylation = contig.get_methylated_positions(&fwd_indices, methylome::Strand::Positive, mod_type);
          let mut rev_methylation = contig.get_methylated_positions(&rev_indices, methylome::Strand::Negative, mod_type);
 
@@ -70,7 +74,8 @@ pub fn calculate_contig_read_methylation_pattern(
              continue;
          }
 
-        let n_motif_obs = methylation_data.len() as u32;
+         // This is number of motif obervations with methylation data
+         let n_motif_obs = methylation_data.len() as u32;
          
          let mean_read_cov = {
              let total_cov: u64 = methylation_data.iter().map(|cov| cov.get_n_valid_cov() as u64).sum();
@@ -96,6 +101,7 @@ pub fn calculate_contig_read_methylation_pattern(
              median,
              mean_read_cov,
              n_motif_obs,
+             motif_occurences_total,
          })
      }
 

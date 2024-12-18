@@ -110,7 +110,7 @@ fn main() -> Result<()> {
 
     writeln!(
         writer,
-        "contig\tmotif\tmod_type\tmod_position\tmedian\tmean_read_cov"
+        "contig\tmotif\tmod_type\tmod_position\tmedian\tmean_read_cov\tN_motif_obs\tmotif_occurences_total"
     )?;
 
     for entry in &contig_methylation_pattern {
@@ -120,13 +120,15 @@ fn main() -> Result<()> {
 
         writeln!(
             writer,
-            "{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             entry.contig,
             motif_sequence,
             mod_type_str,
             mod_position,
             entry.median,
-            entry.mean_read_cov
+            entry.mean_read_cov,
+            entry.n_motif_obs,
+            entry.motif_occurences_total
         )?;
 
         writer.flush()?;
