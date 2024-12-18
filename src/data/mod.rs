@@ -2,6 +2,7 @@ pub mod contig;
 pub mod methylation;
 
 use anyhow::{bail, Context, Result};
+use bytesize::ByteSize;
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use log::{error, info};
 use methylation::MethylationCoverage;
@@ -53,28 +54,38 @@ impl GenomeWorkspace {
             .with_context(|| format!("Error opening file: {:?}", &pileup_path.as_ref()))?;
 
         let reader = BufReader::new(&file);
-        let total_lines = reader.lines().count();
 
-        let pb = ProgressBar::new(total_lines as u64);
+        let file_metadata = file.metadata().with_context(|| {
+            format!(
+                "Could not fetch metadata for file: {:?}",
+                &pileup_path.as_ref()
+            )
+        })?;
+        let file_size = file_metadata.len();
+        let human_readable_size = ByteSize::b(file_size).to_string();
+
+        let pb = ProgressBar::new(file_size);
         pb.set_style(
             ProgressStyle::with_template(
-                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}",
+                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes:>8}/{total_bytes:>8} ({percent}%)",
             )
             .unwrap()
-            .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
-                write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
+            .with_key("bytes", |state: &ProgressState, w: &mut dyn Write| {
+                // Convert processed bytes to human-readable format
+                write!(w, "{}", ByteSize::b(state.pos())).unwrap()
+            })
+                .with_key("total_bytes", {
+                let human_readable_size = human_readable_size.clone();
+                move |_state: &ProgressState, w: &mut dyn std::fmt::Write| {
+                    write!(w, "{}", human_readable_size).unwrap()
+                }
             })
             .progress_chars("#>-"),
         );
 
-        let file = File::open(&pileup_path)
-            .with_context(|| format!("Error re-opening file: {:?}", &pileup_path.as_ref()))?;
-
-        let reader = BufReader::new(&file);
-
+        let mut bytes_read = 0;
+        let mut lines_processed = 0;
         for (line_num, line_result) in reader.lines().enumerate() {
-            pb.inc(1);
-
             let line = line_result.with_context(|| {
                 format!(
                     "Could not read line '{}' in file: {:?}",
@@ -82,6 +93,13 @@ impl GenomeWorkspace {
                     &pileup_path.as_ref()
                 )
             })?;
+
+            bytes_read += line.len() + 1;
+            lines_processed += 1;
+
+            if lines_processed % 100000 == 0 {
+                pb.set_position(bytes_read as u64);
+            }
 
             let fields: Vec<&str> = line.split('\t').collect();
 
@@ -141,7 +159,6 @@ impl GenomeWorkspace {
 mod tests {
     use super::*;
     use anyhow::Result;
-    use std::fs::File;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
