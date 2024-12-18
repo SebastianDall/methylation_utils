@@ -4,7 +4,7 @@ use methylome::{find_motif_indices_in_contig, motif::Motif};
 use rayon::prelude::*;
 use std::{
     fmt::Write,
-    sync::{Arc},
+    sync::Arc,
     str::FromStr,
 };
 
@@ -144,7 +144,7 @@ pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>> {
 #[cfg(test)]
 mod tests {
     use tempfile::NamedTempFile;
-    use std::io::{Write};
+    use std::io::Write;
 
     use crate::data::contig::Contig;
 

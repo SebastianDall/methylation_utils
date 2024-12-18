@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use ahash::AHashMap;
 use anyhow::{bail, Result};
 
 use super::methylation::*;
@@ -9,7 +8,7 @@ pub struct Contig {
     pub id: String,
     pub sequence: String,
     sequence_len: usize,
-    pub methylated_positions: HashMap<(usize, Strand, ModType), MethylationCoverage>,
+    pub methylated_positions: AHashMap<(usize, Strand, ModType), MethylationCoverage>,
 }
 
 impl Contig {
@@ -20,7 +19,7 @@ impl Contig {
             id,
             sequence,
             sequence_len: sequence_length,
-            methylated_positions: HashMap::new(),
+            methylated_positions: AHashMap::new(),
         }
     }
 
@@ -37,9 +36,9 @@ impl Contig {
 
         let key = (position, strand.clone(), mod_type.clone());
 
-        if self.methylated_positions.contains_key(&key) {
-            bail!("Methylation record already store for: {} - strand ({}) - modification type ({}) - position '{}'",self.id, strand,mod_type, position)
-        }
+        // if self.methylated_positions.contains_key(&key) {
+        //     bail!("Methylation record already store for: {} - strand ({}) - modification type ({}) - position '{}'",self.id, strand,mod_type, position)
+        // }
 
         self.methylated_positions.insert(key, meth_coverage);
         Ok(())
