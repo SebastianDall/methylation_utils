@@ -22,9 +22,9 @@ impl MethylationCoverage {
         })
     }
 
-    pub fn get_n_modified(&self) -> u32 {
-        self.n_modified
-    }
+    // pub fn get_n_modified(&self) -> u32 {
+    //     self.n_modified
+    // }
 
     pub fn get_n_valid_cov(&self) -> u32 {
         self.n_valid_cov
