@@ -1,14 +1,14 @@
 pub mod contig;
 pub mod methylation;
 
-use anyhow::{bail, Context, Result};
+use crate::data::contig::Contig;
+use anyhow::{anyhow, bail, Context, Result};
 use bytesize::ByteSize;
+use csv::ReaderBuilder;
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use log::{error, info};
 use methylation::MethylationCoverage;
 use methylome::{ModType, Strand};
-
-use crate::data::contig::Contig;
 use std::{
     collections::HashMap,
     fmt::Write,
@@ -52,9 +52,6 @@ impl GenomeWorkspace {
     ) -> Result<()> {
         let file = File::open(&pileup_path)
             .with_context(|| format!("Error opening file: {:?}", &pileup_path.as_ref()))?;
-
-        let reader = BufReader::new(&file);
-
         let file_metadata = file.metadata().with_context(|| {
             format!(
                 "Could not fetch metadata for file: {:?}",
@@ -83,10 +80,15 @@ impl GenomeWorkspace {
             .progress_chars("#>-"),
         );
 
-        let mut bytes_read = 0;
+        let mut rdr = ReaderBuilder::new()
+            .has_headers(false)
+            .delimiter(b'\t')
+            .from_reader(file);
+
+        // let mut bytes_read = 0;
         let mut lines_processed = 0;
-        for (line_num, line_result) in reader.lines().enumerate() {
-            let line = line_result.with_context(|| {
+        for (line_num, result) in rdr.records().enumerate() {
+            let record = result.with_context(|| {
                 format!(
                     "Could not read line '{}' in file: {:?}",
                     line_num + 1,
@@ -94,51 +96,58 @@ impl GenomeWorkspace {
                 )
             })?;
 
-            bytes_read += line.len() + 1;
-            lines_processed += 1;
+            // bytes_read += line.len() + 1;
+            // lines_processed += 1;
 
-            if lines_processed % 100000 == 0 {
-                pb.set_position(bytes_read as u64);
-            }
+            // if lines_processed % 100000 == 0 {
+            //     let bytes_read = rdr.position().byte();
+            //     pb.set_position(bytes_read as u64);
+            // }
 
-            let fields: Vec<&str> = line.split('\t').collect();
-
-            if fields.len() != 18 {
-                pb.finish_with_message("Pileup processing complete with errors");
-                bail!(
-                    "Malformed line on line '{}' in file: {:?}",
-                    line_num + 1,
-                    &pileup_path.as_ref()
-                )
-            }
-            let n_modified: u32 = fields[11].parse().with_context(|| {
-                format!(
-                    "Invalid N_modified value: {}. Occured at line {}",
-                    fields[11],
-                    line_num + 1
-                )
-            })?;
-            let n_valid_cov: u32 = fields[9].parse().with_context(|| {
+            let n_valid_cov_str = record
+                .get(9)
+                .with_context(|| anyhow!("Missing contig at line {}", line_num + 1))?;
+            let n_valid_cov = n_valid_cov_str.parse().with_context(|| {
                 format!(
                     "Invalid N_valid_cov value: {}. Occured at line {}",
-                    fields[9],
+                    n_valid_cov_str,
                     line_num + 1
                 )
             })?;
-
             // Skip entries with zero coverage
             if n_valid_cov < min_valid_read_coverage {
                 continue;
             }
 
-            let methylation = MethylationCoverage::new(n_modified, n_valid_cov)?;
+            let contig_id = record
+                .get(0)
+                .ok_or_else(|| anyhow!("Missing contig at line {}", line_num + 1))?;
 
-            let contig_id = fields[0];
-            let position: usize = fields[1].parse().with_context(|| {
-                format!("Could not parse position to int on line: {}", line_num + 1)
-            })?;
-            let strand = Strand::from_str(fields[5])?;
-            let mod_type = ModType::from_str(fields[3])?;
+            let position_str = record
+                .get(1)
+                .ok_or_else(|| anyhow!("Missing position at line {}", line_num + 1))?;
+            let position: usize = position_str
+                .parse()
+                .with_context(|| format!("Invalid position at line {}", line_num + 1))?;
+
+            let mod_type_str = record
+                .get(3)
+                .ok_or_else(|| anyhow!("Missing mod_type at line {}", line_num + 1))?;
+            let mod_type = ModType::from_str(mod_type_str)?;
+
+            let strand_str = record
+                .get(5)
+                .ok_or_else(|| anyhow!("Missing strand at line {}", line_num + 1))?;
+            let strand = Strand::from_str(strand_str)?;
+
+            let n_modified_str = record
+                .get(11)
+                .ok_or_else(|| anyhow!("Missing n_modified at line {}", line_num + 1))?;
+            let n_modified: u32 = n_modified_str
+                .parse()
+                .with_context(|| format!("Invalid n_modified at line {}", line_num + 1))?;
+
+            let methylation = MethylationCoverage::new(n_modified, n_valid_cov)?;
 
             if let Some(contig_entry) = self.get_mut_contig(&contig_id) {
                 contig_entry.add_methylation(position, strand, mod_type, methylation)?;
