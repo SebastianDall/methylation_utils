@@ -1,0 +1,17 @@
+{
+  "command": "detect_contamination",
+  "pileup": "data/datasets/PaPr00000216MP/pileup.bed",
+  "assembly": "data/datasets/PaPr00000216MP/NP-PaPr00000216MP_assembly.fasta",
+  "bin_motifs": "data/datasets/PaPr00000216MP/bin-motifs.tsv",
+  "contig_bins": "data/datasets/PaPr00000216MP/contig_bins.tsv",
+  "threads": 10,
+  "min_valid_read_coverage": 3,
+  "methylation_threshold": 24,
+  "num_consensus": 4,
+  "force": false,
+  "write_bins": false,
+  "out": "devtest",
+  "contamination_file": null,
+  "verbose": false,
+  "seed": 1
+}

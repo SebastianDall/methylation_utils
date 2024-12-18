@@ -213,6 +213,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "epimetheus"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "bytesize",
+ "clap",
+ "env_logger",
+ "humantime",
+ "indicatif",
+ "log",
+ "methylome",
+ "rayon",
+ "seq_io",
+ "tempfile",
+]
+
+[[package]]
 name = "errno"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -298,23 +315,6 @@ name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
-
-[[package]]
-name = "methylation_utils"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "bytesize",
- "clap",
- "env_logger",
- "humantime",
- "indicatif",
- "log",
- "methylome",
- "rayon",
- "seq_io",
- "tempfile",
-]
 
 [[package]]
 name = "methylome"
