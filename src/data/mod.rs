@@ -67,7 +67,7 @@ impl GenomeWorkspaceBuilder {
                 record.methylation,
             )?;
         } else {
-            error!(
+            bail!(
                 "Warning: Contig: '{}' found in pileup, but not in assembly",
                 record.contig
             );
@@ -101,9 +101,15 @@ impl GenomeWorkspace {
 
 #[cfg(test)]
 mod tests {
+    use crate::extract_methylation_pattern::parse_to_methylation_record;
+
     use super::*;
     use anyhow::Result;
-    use std::io::Write;
+    use csv::ReaderBuilder;
+    use std::{
+        fs::File,
+        io::{BufReader, Write},
+    };
     use tempfile::NamedTempFile;
 
     #[test]
@@ -132,10 +138,10 @@ mod tests {
 
     #[test]
     fn test_populate_methylation() -> Result<()> {
-        let mut workspace = GenomeWorkspaceBuilder::new();
+        let mut workspace_builder = GenomeWorkspaceBuilder::new();
 
         // Add a mock contig to the workspace
-        workspace.add_contig(Contig::new("contig_3".to_string(), "ATCG".to_string()))?;
+        workspace_builder.add_contig(Contig::new("contig_3".to_string(), "ATCG".to_string()))?;
 
         // Create a temporary pileup file
         let mut pileup_file = NamedTempFile::new()?;
@@ -153,7 +159,29 @@ mod tests {
         )?;
 
         // Populate methylation data
-        workspace.populate_methylation_from_pileup(pileup_file.path(), 1)?;
+        let file = File::open(pileup_file)?;
+        let reader = BufReader::new(file);
+        let mut rdr = ReaderBuilder::new()
+            .has_headers(false)
+            .delimiter(b'\t')
+            .from_reader(reader);
+
+        for res in rdr.records() {
+            let record = res?;
+
+            let n_valid_cov_str = record.get(9).unwrap();
+            let n_valid_cov = n_valid_cov_str.parse().unwrap();
+
+            if n_valid_cov < 3 {
+                continue;
+            }
+            let meth_record =
+                parse_to_methylation_record("contig_3".to_string(), n_valid_cov, &record, 1)
+                    .unwrap();
+            workspace_builder.add_record(meth_record).unwrap();
+        }
+
+        let mut workspace = workspace_builder.build();
 
         // Get the contig
         let contig = workspace.get_mut_contig("contig_3").unwrap();
@@ -188,26 +216,34 @@ mod tests {
     }
 
     #[test]
-    fn test_populate_methylation_missing_contig() -> Result<()> {
-        let mut workspace = GenomeWorkspace::new();
-
-        // Add a mock contig that doesn't match the pileup
-        workspace.add_contig(Contig::new("contig_1".to_string(), "ATCG".to_string()))?;
-
+    fn test_populate_methylation_missing_contig() {
+        let mut workspace_builder = GenomeWorkspaceBuilder::new();
         // Create a temporary pileup file
-        let mut pileup_file = NamedTempFile::new()?;
+        let mut pileup_file = NamedTempFile::new().unwrap();
         writeln!(
             pileup_file,
             "contig_3\t0\t1\tm\t133\t-\t0\t1\t255,0,0\t133\t0.00\t10\t123\t0\t0\t6\t0\t0"
-        )?;
+        )
+        .unwrap();
 
         // Populate methylation data
-        workspace.populate_methylation_from_pileup(pileup_file.path(), 1)?;
+        let file = File::open(pileup_file.path()).unwrap();
+        let reader = BufReader::new(file);
+        let mut rdr = ReaderBuilder::new()
+            .has_headers(false)
+            .delimiter(b'\t')
+            .from_reader(reader);
 
-        // Ensure the workspace is unchanged since the contig doesn't match
-        let contig = workspace.get_mut_contig("contig_1").unwrap();
-        assert!(contig.methylated_positions.is_empty());
+        for res in rdr.records() {
+            let record = res.unwrap();
 
-        Ok(())
+            let n_valid_cov_str = record.get(9).unwrap();
+            let n_valid_cov = n_valid_cov_str.parse().unwrap();
+            let meth_record =
+                parse_to_methylation_record("contig_1".to_string(), n_valid_cov, &record, 1)
+                    .unwrap();
+            let result = workspace_builder.add_record(meth_record);
+            assert!(result.is_err());
+        }
     }
 }

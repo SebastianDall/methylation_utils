@@ -124,10 +124,11 @@ pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>> {
 
 #[cfg(test)]
 mod tests {
+    use csv::ReaderBuilder;
     use tempfile::NamedTempFile;
-    use std::io::Write;
+    use std::{fs::File, io::{BufReader, Write}};
 
-    use crate::data::contig::Contig;
+    use crate::{data::{contig::Contig, GenomeWorkspaceBuilder}, extract_methylation_pattern::parse_to_methylation_record};
 
     use super::*;
 
@@ -157,22 +158,39 @@ mod tests {
 
 
 
-        let mut workspace = GenomeWorkspace::new();
+        let mut workspace_builder = GenomeWorkspaceBuilder::new();
 
         // Add a mock contig to the workspace
-        workspace.add_contig(Contig::new("contig_3".to_string(), "TGGACGATCCCGATC".to_string())).unwrap();
+        workspace_builder.add_contig(Contig::new("contig_3".to_string(), "TGGACGATCCCGATC".to_string())).unwrap();
+
+
+        let file = File::open(pileup_file).unwrap();
+        let reader = BufReader::new(file);
+        let mut rdr = ReaderBuilder::new()
+            .has_headers(false)
+            .delimiter(b'\t')
+            .from_reader(reader);
+
+        for res in rdr.records() {
+            let record = res.unwrap();
+
+            let n_valid_cov_str = record.get(9).unwrap();
+            let n_valid_cov = n_valid_cov_str.parse().unwrap();
+            let meth_record =
+                parse_to_methylation_record("contig_3".to_string(), n_valid_cov, &record, 1)
+                    .unwrap();
+            workspace_builder.add_record(meth_record).unwrap();
+        }
+
+        let workspace = workspace_builder.build();
+
+        
         let motifs = vec![
             Motif::new("GATC", "a", 1).unwrap(),
             Motif::new("GATC", "m", 3).unwrap(),
             Motif::new("GATC", "21839", 3).unwrap(),
         ];
-
-        workspace.populate_methylation_from_pileup(pileup_file, 1).unwrap();
-
-        let contig_methylation_pattern =
-            calculate_contig_read_methylation_pattern(workspace,  motifs, 1).unwrap();
-
-        
+        let contig_methylation_pattern = calculate_contig_read_methylation_pattern(workspace, motifs, 1).unwrap();
 
         let expected_median_result = vec![0.625, 1.0];
         let meth_result: Vec<f64> = contig_methylation_pattern.iter().map(|res| res.median).collect();
