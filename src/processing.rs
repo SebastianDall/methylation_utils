@@ -1,9 +1,7 @@
 use anyhow::{Context, Result};
-use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use methylome::{find_motif_indices_in_contig, motif::Motif};
 use rayon::prelude::*;
 use std::{
-    fmt::Write,
     sync::Arc,
     str::FromStr,
 };
@@ -29,19 +27,6 @@ pub fn calculate_contig_read_methylation_pattern(
         .num_threads(num_threads)
         .build()
         .expect("Could not initialize threadpool");
-
-    // let tasks = contigs.contigs.len() as u64;
-    // let pb = ProgressBar::new(tasks);
-    // pb.set_style(
-    //     ProgressStyle::with_template(
-    //         "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
-    //     )
-    //     .unwrap()
-    //     .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
-    //         write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
-    //     })
-    //     .progress_chars("#>-"),
-    // );
 
     let motifs = Arc::new(motifs);
 
@@ -105,14 +90,10 @@ pub fn calculate_contig_read_methylation_pattern(
          })
      }
 
-     // pb.inc(1);
-
      local_results
 
         
     }).collect();
-
-    // pb.finish_with_message("Finished processing all contigs.");
 
     Ok(results)
 }

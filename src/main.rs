@@ -1,9 +1,9 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use humantime::format_duration;
 use indicatif::HumanDuration;
 use log::info;
-use std::{fs, path::Path, time::Instant};
+use std::time::Instant;
 
 mod argparser;
 mod data;
