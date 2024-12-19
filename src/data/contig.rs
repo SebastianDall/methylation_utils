@@ -4,6 +4,7 @@ use anyhow::{bail, Result};
 use super::methylation::*;
 use methylome::{ModType, Strand};
 
+#[derive(Clone)]
 pub struct Contig {
     pub id: String,
     pub sequence: String,

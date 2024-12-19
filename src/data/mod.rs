@@ -12,7 +12,7 @@ use methylation::MethylationCoverage;
 use methylome::{ModType, Strand};
 use std::{fmt::Write, fs::read, io::Cursor};
 
-struct MethylationRecord {
+pub struct MethylationRecord {
     contig: String,
     position: usize,
     strand: Strand,
@@ -20,160 +20,227 @@ struct MethylationRecord {
     methylation: MethylationCoverage,
 }
 
+impl MethylationRecord {
+    pub fn new(
+        contig: String,
+        position: usize,
+        strand: Strand,
+        mod_type: ModType,
+        methylation: MethylationCoverage,
+    ) -> Self {
+        Self {
+            contig,
+            position,
+            strand,
+            mod_type,
+            methylation,
+        }
+    }
+
+    pub fn get_contig_id(&self) -> String {
+        self.contig.to_string()
+    }
+}
+
+pub struct GenomeWorkspaceBuilder {
+    workspace: GenomeWorkspace,
+}
+
+impl GenomeWorkspaceBuilder {
+    pub fn new() -> Self {
+        Self {
+            workspace: GenomeWorkspace::new(),
+        }
+    }
+
+    pub fn add_contig(&mut self, contig: Contig) -> Result<&mut Self> {
+        if self.workspace.contigs.contains_key(&contig.id) {
+            bail!("Key error: '{}' already inserted", &contig.id)
+        }
+
+        self.workspace.contigs.insert(contig.id.clone(), contig);
+        Ok(self)
+    }
+
+    pub fn add_record(&mut self, record: MethylationRecord) -> Result<&mut Self> {
+        if let Some(contig_entry) = self.workspace.get_mut_contig(&record.get_contig_id()) {
+            contig_entry.add_methylation(
+                record.position,
+                record.strand,
+                record.mod_type,
+                record.methylation,
+            )?;
+        } else {
+            error!(
+                "Warning: Contig: '{}' found in pileup, but not in assembly",
+                record.contig
+            );
+        };
+        Ok(self)
+    }
+
+    pub fn build(self) -> GenomeWorkspace {
+        self.workspace
+    }
+}
+
 pub struct GenomeWorkspace {
-    pub contigs: AHashMap<String, Contig>,
+    contigs: AHashMap<String, Contig>,
 }
 
 impl GenomeWorkspace {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             contigs: AHashMap::new(),
         }
     }
-
-    pub fn add_contig(&mut self, contig: Contig) -> Result<()> {
-        if self.contigs.contains_key(&contig.id) {
-            bail!("Key error: '{}' already inserted", &contig.id)
-        }
-
-        self.contigs.insert(contig.id.clone(), contig);
-        Ok(())
+    pub fn get_workspace(&self) -> AHashMap<String, Contig> {
+        self.contigs.clone()
     }
 
-    pub fn prune_empty_contigs(&mut self) {
-        self.contigs
-            .retain(|_id, contig| !contig.methylated_positions.is_empty());
-    }
+    // fn add_contig(&mut self, contig: Contig) -> Result<()> {
+    //     if self.contigs.contains_key(&contig.id) {
+    //         bail!("Key error: '{}' already inserted", &contig.id)
+    //     }
 
-    pub fn get_mut_contig(&mut self, id: &str) -> Option<&mut Contig> {
+    //     self.contigs.insert(contig.id.clone(), contig);
+    //     Ok(())
+    // }
+
+    // fn prune_empty_contigs(&mut self) {
+    //     self.contigs
+    //         .retain(|_id, contig| !contig.methylated_positions.is_empty());
+    // }
+
+    fn get_mut_contig(&mut self, id: &str) -> Option<&mut Contig> {
         self.contigs.get_mut(id)
     }
 
-    pub fn populate_methylation_from_pileup<P: AsRef<std::path::Path>>(
-        &mut self,
-        pileup_path: P,
-        min_valid_read_coverage: u32,
-    ) -> Result<()> {
-        let pileup_path_ref = pileup_path.as_ref();
+    //     fn populate_methylation_from_pileup<P: AsRef<std::path::Path>>(
+    //         &mut self,
+    //         pileup_path: P,
+    //         min_valid_read_coverage: u32,
+    //     ) -> Result<()> {
+    //         let pileup_path_ref = pileup_path.as_ref();
 
-        let data = read(pileup_path_ref)
-            .with_context(|| format!("Error reading entire file: {:?}", pileup_path_ref))?;
+    //         let data = read(pileup_path_ref)
+    //             .with_context(|| format!("Error reading entire file: {:?}", pileup_path_ref))?;
 
-        let file_size = data.len() as u64;
-        let human_readable_size = ByteSize::b(file_size).to_string();
+    //         let file_size = data.len() as u64;
+    //         let human_readable_size = ByteSize::b(file_size).to_string();
 
-        let pb = ProgressBar::new(file_size);
-        pb.set_style(
-            ProgressStyle::with_template(
-                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes:>8}/{total_bytes:>8} ({percent}%)",
-            )
-            .unwrap()
-            .with_key("bytes", |state: &ProgressState, w: &mut dyn Write| {
-                // Convert processed bytes to human-readable format
-                write!(w, "{}", ByteSize::b(state.pos())).unwrap()
-            })
-                .with_key("total_bytes", {
-                let human_readable_size = human_readable_size.clone();
-                move |_state: &ProgressState, w: &mut dyn std::fmt::Write| {
-                    write!(w, "{}", human_readable_size).unwrap()
-                }
-            })
-            .progress_chars("#>-"),
-        );
+    //         let pb = ProgressBar::new(file_size);
+    //         pb.set_style(
+    //             ProgressStyle::with_template(
+    //                 "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes:>8}/{total_bytes:>8} ({percent}%)",
+    //             )
+    //             .unwrap()
+    //             .with_key("bytes", |state: &ProgressState, w: &mut dyn Write| {
+    //                 // Convert processed bytes to human-readable format
+    //                 write!(w, "{}", ByteSize::b(state.pos())).unwrap()
+    //             })
+    //                 .with_key("total_bytes", {
+    //                 let human_readable_size = human_readable_size.clone();
+    //                 move |_state: &ProgressState, w: &mut dyn std::fmt::Write| {
+    //                     write!(w, "{}", human_readable_size).unwrap()
+    //                 }
+    //             })
+    //             .progress_chars("#>-"),
+    //         );
 
-        let cursor = Cursor::new(data);
-        let mut rdr = ReaderBuilder::new()
-            .has_headers(false)
-            .delimiter(b'\t')
-            .from_reader(cursor);
-        let mut record = csv::StringRecord::new();
+    //         let cursor = Cursor::new(data);
+    //         let mut rdr = ReaderBuilder::new()
+    //             .has_headers(false)
+    //             .delimiter(b'\t')
+    //             .from_reader(cursor);
+    //         let mut record = csv::StringRecord::new();
 
-        let mut methylation_records: Vec<MethylationRecord> = Vec::new();
+    //         let mut methylation_records: Vec<MethylationRecord> = Vec::new();
 
-        let mut lines_processed = 0;
-        // for (line_num, result) in rdr.records().enumerate() {
-        while rdr.read_record(&mut record)? {
-            lines_processed += 1;
+    //         let mut lines_processed = 0;
+    //         // for (line_num, result) in rdr.records().enumerate() {
+    //         while rdr.read_record(&mut record)? {
+    //             lines_processed += 1;
 
-            if lines_processed % 100_000 == 0 {
-                let bytes_read = rdr.position().byte();
-                pb.set_position(bytes_read as u64);
-            }
+    //             if lines_processed % 100_000 == 0 {
+    //                 let bytes_read = rdr.position().byte();
+    //                 pb.set_position(bytes_read as u64);
+    //             }
 
-            let n_valid_cov_str = record
-                .get(9)
-                .with_context(|| anyhow!("Missing contig at line {}", lines_processed))?;
-            let n_valid_cov = n_valid_cov_str.parse().with_context(|| {
-                format!(
-                    "Invalid N_valid_cov value: {}. Occured at line {}",
-                    n_valid_cov_str, lines_processed
-                )
-            })?;
-            // Skip entries with zero coverage
-            if n_valid_cov < min_valid_read_coverage {
-                continue;
-            }
+    //             let n_valid_cov_str = record
+    //                 .get(9)
+    //                 .with_context(|| anyhow!("Missing contig at line {}", lines_processed))?;
+    //             let n_valid_cov = n_valid_cov_str.parse().with_context(|| {
+    //                 format!(
+    //                     "Invalid N_valid_cov value: {}. Occured at line {}",
+    //                     n_valid_cov_str, lines_processed
+    //                 )
+    //             })?;
+    //             // Skip entries with zero coverage
+    //             if n_valid_cov < min_valid_read_coverage {
+    //                 continue;
+    //             }
 
-            let contig_id = record
-                .get(0)
-                .ok_or_else(|| anyhow!("Missing contig at line {}", lines_processed))?
-                .to_string();
+    //             let contig_id = record
+    //                 .get(0)
+    //                 .ok_or_else(|| anyhow!("Missing contig at line {}", lines_processed))?
+    //                 .to_string();
 
-            let position_str = record
-                .get(1)
-                .ok_or_else(|| anyhow!("Missing position at line {}", lines_processed))?;
-            let position: usize = position_str
-                .parse()
-                .with_context(|| format!("Invalid position at line {}", lines_processed))?;
+    //             let position_str = record
+    //                 .get(1)
+    //                 .ok_or_else(|| anyhow!("Missing position at line {}", lines_processed))?;
+    //             let position: usize = position_str
+    //                 .parse()
+    //                 .with_context(|| format!("Invalid position at line {}", lines_processed))?;
 
-            let mod_type_str = record
-                .get(3)
-                .ok_or_else(|| anyhow!("Missing mod_type at line {}", lines_processed))?;
-            let mod_type = ModType::from_str(mod_type_str)?;
+    //             let mod_type_str = record
+    //                 .get(3)
+    //                 .ok_or_else(|| anyhow!("Missing mod_type at line {}", lines_processed))?;
+    //             let mod_type = ModType::from_str(mod_type_str)?;
 
-            let strand_str = record
-                .get(5)
-                .ok_or_else(|| anyhow!("Missing strand at line {}", lines_processed))?;
-            let strand = Strand::from_str(strand_str)?;
+    //             let strand_str = record
+    //                 .get(5)
+    //                 .ok_or_else(|| anyhow!("Missing strand at line {}", lines_processed))?;
+    //             let strand = Strand::from_str(strand_str)?;
 
-            let n_modified_str = record
-                .get(11)
-                .ok_or_else(|| anyhow!("Missing n_modified at line {}", lines_processed))?;
-            let n_modified: u32 = n_modified_str
-                .parse()
-                .with_context(|| format!("Invalid n_modified at line {}", lines_processed))?;
+    //             let n_modified_str = record
+    //                 .get(11)
+    //                 .ok_or_else(|| anyhow!("Missing n_modified at line {}", lines_processed))?;
+    //             let n_modified: u32 = n_modified_str
+    //                 .parse()
+    //                 .with_context(|| format!("Invalid n_modified at line {}", lines_processed))?;
 
-            let methylation = MethylationCoverage::new(n_modified, n_valid_cov)?;
+    //             let methylation = MethylationCoverage::new(n_modified, n_valid_cov)?;
 
-            methylation_records.push(MethylationRecord {
-                contig: contig_id,
-                position,
-                strand,
-                mod_type,
-                methylation,
-            });
-        }
-        pb.finish_with_message("Finished reading pileup into memory.\n");
+    //             methylation_records.push(MethylationRecord {
+    //                 contig: contig_id,
+    //                 position,
+    //                 strand,
+    //                 mod_type,
+    //                 methylation,
+    //             });
+    //         }
+    //         pb.finish_with_message("Finished reading pileup into memory.\n");
 
-        for rec in methylation_records {
-            if let Some(contig_entry) = self.get_mut_contig(&rec.contig) {
-                contig_entry.add_methylation(
-                    rec.position,
-                    rec.strand,
-                    rec.mod_type,
-                    rec.methylation,
-                )?;
-            } else {
-                error!(
-                    "Warning: Contig: '{}' found in pileup, but not in assembly",
-                    rec.contig
-                );
-            }
-        }
+    //         for rec in methylation_records {
+    //             if let Some(contig_entry) = self.get_mut_contig(&rec.contig) {
+    //                 contig_entry.add_methylation(
+    //                     rec.position,
+    //                     rec.strand,
+    //                     rec.mod_type,
+    //                     rec.methylation,
+    //                 )?;
+    //             } else {
+    //                 error!(
+    //                     "Warning: Contig: '{}' found in pileup, but not in assembly",
+    //                     rec.contig
+    //                 );
+    //             }
+    //         }
 
-        info!("Pileup processing succesfull");
-        Ok(())
-    }
+    //         info!("Pileup processing succesfull");
+    //         Ok(())
+    //     }
 }
 
 #[cfg(test)]
