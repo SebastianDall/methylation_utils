@@ -11,7 +11,6 @@ use std::{
 };
 
 use crate::{
-    argparser::Args,
     data::{GenomeWorkspaceBuilder, MethylationRecord},
     data_load::load_contigs,
     processing::{
@@ -26,7 +25,10 @@ pub use args::MethylationPatternArgs;
 pub use utils::parse_to_methylation_record;
 
 pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
-    info!("Running methylation_utils with {} threads", &args.threads);
+    info!(
+        "Running epimetheus 'methylation-pattern' with {} threads",
+        &args.threads
+    );
 
     let outpath = Path::new(&args.output);
 
@@ -63,6 +65,7 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
         anyhow::bail!("No contigs are loaded!");
     }
 
+    info!("Processing Pileup");
     let file = File::open(&args.pileup)?;
     let reader = BufReader::new(file);
     let mut rdr = ReaderBuilder::new()
@@ -75,12 +78,14 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
 
     let mut current_contig: Option<String> = None;
     let mut contigs_loaded = 0;
+    let mut contigs_processed = 0;
 
     let mut methylation_records: Vec<MethylationRecord> = Vec::new();
     let mut methylation_pattern_results: Vec<MotifMethylationDegree> = Vec::new();
 
     let mut lines_processed = 0;
     while rdr.read_record(&mut record)? {
+        let batch_loading_duration = Instant::now();
         lines_processed += 1;
         let n_valid_cov_str = record
             .get(9)
@@ -106,18 +111,37 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
             contigs_loaded += 1;
 
             if contigs_loaded > args.batches {
+                let elapsed_batch_loading_duration = batch_loading_duration.elapsed();
+                info!(
+                    "Loading {} contigs took: {}.",
+                    &args.batches,
+                    HumanDuration(elapsed_batch_loading_duration).to_string()
+                );
                 for meth_rec in methylation_records.drain(..) {
                     builder.add_record(meth_rec)?;
                 }
+
                 let workspace = builder.build();
 
+                info!("Calculating methylation patten.");
+                let calculate_methylation_pattern_duration = Instant::now();
                 let mut methylation_pattern = calculate_contig_read_methylation_pattern(
                     workspace,
                     motifs.clone(),
                     args.threads,
                 )?;
+                let elapsed_calculate_methylation_pattern_duration =
+                    calculate_methylation_pattern_duration.elapsed();
+                info!(
+                    "Calculating methylation pattern took: {} - ({})",
+                    HumanDuration(elapsed_calculate_methylation_pattern_duration).to_string(),
+                    format_duration(elapsed_calculate_methylation_pattern_duration).to_string()
+                );
 
                 methylation_pattern_results.append(&mut methylation_pattern);
+
+                contigs_processed += contigs_loaded;
+                info!("Finished processing {}", contigs_processed);
 
                 builder = GenomeWorkspaceBuilder::new();
                 contigs_loaded = 1;
@@ -146,11 +170,12 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
             calculate_contig_read_methylation_pattern(workspace, motifs.clone(), args.threads)?;
 
         methylation_pattern_results.append(&mut methylation_pattern);
+        contigs_processed += contigs_loaded;
+        info!("Finished processing {} contigs", contigs_processed);
     }
 
     methylation_pattern_results.sort_by(|a, b| a.contig.cmp(&b.contig));
 
-    let outpath = &args.output.clone();
     let outfile = std::fs::File::create(outpath)
         .with_context(|| format!("Failed to create file at: {:?}", outpath))?;
     let mut writer = BufWriter::new(outfile);
