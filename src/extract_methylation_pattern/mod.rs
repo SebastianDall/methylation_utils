@@ -1,23 +1,47 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use csv::{ReaderBuilder, StringRecord};
 use humantime::format_duration;
 use indicatif::HumanDuration;
 use log::info;
 use std::{
-    fs,
-    io::{BufWriter, Write},
+    fs::{self, File},
+    io::{BufReader, BufWriter, Write},
     path::Path,
     time::Instant,
 };
 
 use crate::{
     argparser::Args,
-    processing::{calculate_contig_read_methylation_pattern, create_motifs},
+    data::{GenomeWorkspaceBuilder, MethylationRecord},
+    data_load::load_contigs,
+    processing::{
+        calculate_contig_read_methylation_pattern, create_motifs, MotifMethylationDegree,
+    },
 };
 
-pub fn extract_methylation_pattern(args: MethylationPatternArgs, common: Args) -> Result<()> {
-    info!("Running methylation_utils with {} threads", &common.threads);
+pub mod args;
+pub mod utils;
 
-    let preparation_duration = Instant::now();
+pub use args::MethylationPatternArgs;
+pub use utils::parse_to_methylation_record;
+
+pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
+    info!("Running methylation_utils with {} threads", &args.threads);
+
+    let outpath = Path::new(&args.output);
+
+    if let Some(ext) = outpath.extension() {
+        if ext != "tsv" {
+            anyhow::bail!("Incorrect file extension {:?}. Should be tsv", ext);
+        }
+        if let Some(parent) = outpath.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Could not create parent directory: {:?}", parent))?;
+        }
+    } else {
+        anyhow::bail!("No filename provided for output. Should be a .tsv file.");
+    }
+
     let motifs = match args.motifs {
         Some(motifs) => {
             info!("Motifs loaded");
@@ -32,42 +56,101 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs, common: Args) -
     info!("Successfully parsed motifs.");
 
     info!("Loading assembly");
-    let mut contigs = load_contigs(&args.assembly)
+    let contigs = load_contigs(&args.assembly)
         .with_context(|| format!("Error loading assembly from path: '{}'", args.assembly))?;
 
-    if contigs.contigs.len() == 0 {
+    if contigs.len() == 0 {
         anyhow::bail!("No contigs are loaded!");
     }
 
-    info!("Loading methylation from pileup.");
-    contigs.populate_methylation_from_pileup(args.pileup, args.min_valid_read_coverage)?;
+    let file = File::open(&args.pileup)?;
+    let reader = BufReader::new(file);
+    let mut rdr = ReaderBuilder::new()
+        .has_headers(false)
+        .delimiter(b'\t')
+        .from_reader(reader);
+    let mut record = StringRecord::new();
 
-    info!("Removing contigs with no methylation");
-    contigs.prune_empty_contigs();
+    let mut builder = GenomeWorkspaceBuilder::new();
 
-    let elapsed_preparation_time = preparation_duration.elapsed();
-    info!(
-        "Data preparation took: {} - ({})",
-        HumanDuration(elapsed_preparation_time).to_string(),
-        format_duration(elapsed_preparation_time).to_string()
-    );
+    let mut current_contig: Option<String> = None;
+    let mut contigs_loaded = 0;
 
-    info!("Finding contig methylation pattern");
-    let finding_methylation_pattern_duration = Instant::now();
-    let mut contig_methylation_pattern =
-        calculate_contig_read_methylation_pattern(contigs, motifs, args.threads)
-            .context("Unable to find methyation pattern.")?;
+    let mut methylation_records: Vec<MethylationRecord> = Vec::new();
+    let mut methylation_pattern_results: Vec<MotifMethylationDegree> = Vec::new();
 
-    let elapsed_finding_methylation_pattern_duration =
-        finding_methylation_pattern_duration.elapsed();
-    info!(
-        "Methylation pattern took: {} - ({})",
-        HumanDuration(elapsed_finding_methylation_pattern_duration).to_string(),
-        format_duration(elapsed_finding_methylation_pattern_duration).to_string()
-    );
+    let mut lines_processed = 0;
+    while rdr.read_record(&mut record)? {
+        lines_processed += 1;
+        let n_valid_cov_str = record
+            .get(9)
+            .with_context(|| anyhow!("Missing contig at line {}", lines_processed))?;
+        let n_valid_cov = n_valid_cov_str.parse().with_context(|| {
+            format!(
+                "Invalid N_valid_cov value: {}. Occured at line {}",
+                n_valid_cov_str, lines_processed
+            )
+        })?;
+        // Skip entries with zero coverage
+        if n_valid_cov < args.min_valid_read_coverage {
+            continue;
+        }
 
-    contig_methylation_pattern.sort_by(|a, b| a.contig.cmp(&b.contig));
+        let contig_id = record
+            .get(0)
+            .ok_or_else(|| anyhow!("Missing contig at line {}", lines_processed))?
+            .to_string();
 
+        if current_contig.as_ref() != Some(&contig_id) {
+            current_contig = Some(contig_id.clone());
+            contigs_loaded += 1;
+
+            if contigs_loaded > args.batches {
+                for meth_rec in methylation_records.drain(..) {
+                    builder.add_record(meth_rec)?;
+                }
+                let workspace = builder.build();
+
+                let mut methylation_pattern = calculate_contig_read_methylation_pattern(
+                    workspace,
+                    motifs.clone(),
+                    args.threads,
+                )?;
+
+                methylation_pattern_results.append(&mut methylation_pattern);
+
+                builder = GenomeWorkspaceBuilder::new();
+                contigs_loaded = 1;
+            }
+
+            let contig = match contigs.get(&contig_id) {
+                Some(contig) => contig,
+                None => bail!("Contig not found in assembly: {contig_id}"),
+            };
+            builder.add_contig(contig.clone())?;
+        }
+
+        let methylation_record =
+            parse_to_methylation_record(contig_id, n_valid_cov, &record, lines_processed)?;
+
+        methylation_records.push(methylation_record);
+    }
+
+    if !methylation_records.is_empty() {
+        for meth_rec in methylation_records.drain(..) {
+            builder.add_record(meth_rec)?;
+        }
+        let workspace = builder.build();
+
+        let mut methylation_pattern =
+            calculate_contig_read_methylation_pattern(workspace, motifs.clone(), args.threads)?;
+
+        methylation_pattern_results.append(&mut methylation_pattern);
+    }
+
+    methylation_pattern_results.sort_by(|a, b| a.contig.cmp(&b.contig));
+
+    let outpath = &args.output.clone();
     let outfile = std::fs::File::create(outpath)
         .with_context(|| format!("Failed to create file at: {:?}", outpath))?;
     let mut writer = BufWriter::new(outfile);
@@ -77,7 +160,7 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs, common: Args) -
         "contig\tmotif\tmod_type\tmod_position\tmedian\tmean_read_cov\tN_motif_obs\tmotif_occurences_total"
     )?;
 
-    for entry in &contig_methylation_pattern {
+    for entry in &methylation_pattern_results {
         let motif_sequence = entry.motif.sequence_to_string();
         let mod_type_str = entry.motif.mod_type.to_pileup_code();
         let mod_position = entry.motif.mod_position;

@@ -30,22 +30,22 @@ pub fn calculate_contig_read_methylation_pattern(
         .build()
         .expect("Could not initialize threadpool");
 
-    let tasks = contigs.contigs.len() as u64;
-    let pb = ProgressBar::new(tasks);
-    pb.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
-        )
-        .unwrap()
-        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
-            write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
-        })
-        .progress_chars("#>-"),
-    );
+    // let tasks = contigs.contigs.len() as u64;
+    // let pb = ProgressBar::new(tasks);
+    // pb.set_style(
+    //     ProgressStyle::with_template(
+    //         "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
+    //     )
+    //     .unwrap()
+    //     .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
+    //         write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
+    //     })
+    //     .progress_chars("#>-"),
+    // );
 
     let motifs = Arc::new(motifs);
 
-    let results: Vec<MotifMethylationDegree> = contigs.contigs.par_iter().flat_map(|(contig_id, contig)| {
+    let results: Vec<MotifMethylationDegree> = contigs.get_workspace().par_iter().flat_map(|(contig_id, contig)| {
      let contig_seq = &contig.sequence;
 
      let mut local_results = Vec::new();
@@ -105,14 +105,14 @@ pub fn calculate_contig_read_methylation_pattern(
          })
      }
 
-     pb.inc(1);
+     // pb.inc(1);
 
      local_results
 
         
     }).collect();
 
-    pb.finish_with_message("Finished processing all contigs.");
+    // pb.finish_with_message("Finished processing all contigs.");
 
     Ok(results)
 }
