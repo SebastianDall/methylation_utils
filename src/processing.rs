@@ -1,368 +1,229 @@
-use indicatif::{ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
-use log::{error, info};
-use motif::{find_motif_indices_in_contig, Motif};
-use polars::{datatypes::DataType, frame::DataFrame, lazy::frame::LazyFrame, prelude::*};
+use anyhow::{Context, Result};
+use methylome::{find_motif_indices_in_contig, motif::Motif};
 use rayon::prelude::*;
 use std::{
-    env,
-    fmt::Write,
-    sync::{Arc, Mutex},
-    time::Duration,
+    sync::Arc,
+    str::FromStr,
 };
 
-use crate::types::ContigMap;
+use crate::data::{methylation::MethylationCoverage, GenomeWorkspace};
 
-pub fn create_subpileups(
-    pileup: LazyFrame,
-    contig_ids: Vec<String>,
-    min_valid_read_coverage: u32,
-    batches: usize,
-) -> Vec<DataFrame> {
-    info!("Creating subpileups");
-
-    let tasks = contig_ids.len() as u64;
-    let pb = ProgressBar::new(tasks);
-    pb.set_draw_target(ProgressDrawTarget::stdout());
-    pb.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}",
-        )
-        .unwrap()
-        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
-            write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
-        })
-        .progress_chars("#>-"),
-    );
-    pb.enable_steady_tick(Duration::from_millis(100));
-
-    let mut subpileup_vec: Vec<DataFrame> = Vec::new();
-
-    for contig_ids_batch in contig_ids.chunks(batches) {
-        let pileup_batch = pileup
-            .clone()
-            .select([
-                col("contig"),
-                col("mod_type"),
-                col("strand"),
-                col("start"),
-                col("N_valid_cov"),
-                col("N_modified"),
-            ])
-            .filter(col("contig").is_in(lit(Series::new("contig".into(), contig_ids_batch))))
-            .filter(col("N_valid_cov").gt_eq(lit(min_valid_read_coverage as i64)))
-            .with_columns([(col("N_modified").cast(DataType::Float64)
-                / col("N_valid_cov").cast(DataType::Float64))
-            .alias("motif_mean")])
-            .collect()
-            .expect("Error collecting pileup");
-
-        assert!(!pileup_batch.is_empty(), "pileup is empty after filtering");
-
-        let mut subpileups = pileup_batch
-            .partition_by(["contig"], true)
-            .expect("Couldn't partition pileup");
-
-        drop(pileup_batch);
-
-        subpileup_vec.append(&mut subpileups);
-
-        pb.inc(contig_ids_batch.len() as u64);
-    }
-
-    info!("Number of subpileups generated {:?}", subpileup_vec.len());
-    subpileup_vec
+pub struct MotifMethylationDegree {
+    pub contig: String,
+    pub motif: Motif,
+    pub median: f64,
+    pub mean_read_cov: f64,
+    pub n_motif_obs: u32,
+    pub motif_occurences_total: u32,
 }
 
 pub fn calculate_contig_read_methylation_pattern(
-    contigs: ContigMap,
-    subpileups: Vec<DataFrame>,
+    contigs: GenomeWorkspace,
     motifs: Vec<Motif>,
     num_threads: usize,
-) -> DataFrame {
-    env::set_var("POLARS_MAX_THREADS", "1");
+) -> Result<Vec<MotifMethylationDegree>> {
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .build()
         .expect("Could not initialize threadpool");
 
-    let tasks = subpileups.len() as u64;
-    let pb = ProgressBar::new(tasks);
-    pb.set_draw_target(ProgressDrawTarget::stdout());
-    pb.set_style(
-        ProgressStyle::with_template(
-            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
-        )
-        .unwrap()
-        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
-            write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
-        })
-        .progress_chars("#>-"),
-    );
-    pb.enable_steady_tick(Duration::from_millis(100));
-
     let motifs = Arc::new(motifs);
 
-    let schema = Schema::from_iter(vec![
-        Field::new("contig".into(), DataType::String),
-        Field::new("median".into(), DataType::Float64),
-        Field::new("N_motif_obs".into(), DataType::UInt64),
-        Field::new("mean_read_cov".into(), DataType::Float64),
-        Field::new("motif".into(), DataType::String),
-        Field::new("mod_type".into(), DataType::String),
-        Field::new("mod_position".into(), DataType::Int32),
-    ]);
-    let empty_df = DataFrame::empty_with_schema(&schema);
-    let results = Arc::new(Mutex::new(Vec::new()));
+    let results: Vec<MotifMethylationDegree> = contigs.get_workspace().par_iter().flat_map(|(contig_id, contig)| {
+    let contig_seq = &contig.sequence;
 
-    subpileups.chunks(1000).for_each(|batch| {
-        batch.par_iter().for_each(|subpileup| {
-            let contig_id = match subpileup.column("contig") {
-                Ok(column) => match column.get(0) {
-                    Ok(value) => value.to_string().trim_matches('"').to_string(),
-                    Err(e) => {
-                        error!(
-                            "Could not get first value of subpileup from contig column: {}",
-                            e
-                        );
-                        return;
-                    }
-                },
-                Err(e) => {
-                    error!("Could not find contig column in subpileup: {}", e);
-                    return;
-                }
-            };
+    let mut local_results = Vec::new();
 
-            let contig_seq = match contigs.get(&contig_id) {
-                Some(contig) => contig,
-                None => {
-                    error!("Could not find contig_id: {}", contig_id);
-                    return;
-                }
-            };
+    for motif in motifs.iter() {
+        let mod_type = motif.mod_type;
 
-            let mut local_read_methylation_df = empty_df.clone();
+        let fwd_indices: Vec<usize> = find_motif_indices_in_contig(&contig_seq, motif);
+        let rev_indices: Vec<usize> = find_motif_indices_in_contig(&contig_seq, &motif.reverse_complement());
 
-            for motif in motifs.iter() {
-                let mod_type = motif.mod_type.to_pileup_code();
+        if fwd_indices.is_empty() && rev_indices.is_empty() {
+            continue;
+        }
 
-                let fwd_indices = find_motif_indices_in_contig(&contig_seq, &motif);
+        // This is the actual number of motifs in the contig
+        let motif_occurences_total = fwd_indices.len() as u32 + rev_indices.len() as u32;
 
-                let rev_indices =
-                    find_motif_indices_in_contig(&contig_seq, &motif.reverse_complement());
+        let mut fwd_methylation = contig.get_methylated_positions(&fwd_indices, methylome::Strand::Positive, mod_type);
+        let mut rev_methylation = contig.get_methylated_positions(&rev_indices, methylome::Strand::Negative, mod_type);
 
-                if fwd_indices.is_empty() && rev_indices.is_empty() {
-                    continue;
-                }
+        fwd_methylation.append(&mut rev_methylation);
 
-                let fwd_indices_series = Series::new("start".into(), fwd_indices);
-                let rev_indices_series = Series::new("start".into(), rev_indices);
+        let methylation_data: Vec<MethylationCoverage> = fwd_methylation.into_iter().filter_map(|maybe_cov| maybe_cov.cloned()).collect();
 
-                let p_con = subpileup
-                    .clone()
-                    .lazy()
-                    .filter(col("mod_type").eq(lit(mod_type)))
-                    .filter(
-                        (col("strand")
-                            .eq(lit("+"))
-                            .and(col("start").is_in(lit(fwd_indices_series.clone()))))
-                        .or(col("strand")
-                            .eq(lit("-"))
-                            .and(col("start").is_in(lit(rev_indices_series.clone())))),
-                    );
+        if methylation_data.is_empty() {
+            continue;
+        }
 
-                let p_read_methylation = p_con
-                    .group_by([col("contig")])
-                    .agg([
-                        (col("motif_mean").median()).alias("median"),
-                        (col("contig").count()).alias("N_motif_obs"),
-                        (col("N_valid_cov").cast(DataType::Float64).mean()).alias("mean_read_cov"),
-                    ])
-                    .with_columns([
-                        (lit(motif.sequence.clone())).alias("motif"),
-                        (lit(mod_type.to_string())).alias("mod_type"),
-                        (lit(motif.mod_position.clone() as i8)).alias("mod_position"),
-                    ]);
+        // This is number of motif obervations with methylation data
+        let n_motif_obs = methylation_data.len() as u32;
+         
+        let mean_read_cov = {
+            let total_cov: u64 = methylation_data.iter().map(|cov| cov.get_n_valid_cov() as u64).sum();
+            total_cov as f64 / methylation_data.len() as f64
+        };
 
-                local_read_methylation_df = concat(
-                    [local_read_methylation_df.lazy(), p_read_methylation],
-                    UnionArgs::default(),
-                )
-                .unwrap()
-                .collect()
-                .unwrap();
-            }
+        let mut fractions: Vec<f64> = methylation_data
+           .iter()
+           .map(|cov| cov.fraction_modified())
+           .collect();
 
-            let mut results_lock = results.lock().expect("Could not open results mutex");
-            results_lock.push(local_read_methylation_df.lazy());
-        });
-        pb.inc(batch.len() as u64);
-    });
-    println!(""); //To stop log overwriting the progressbar
+        fractions.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median = if fractions.len() % 2 == 0 {
+            let mid = fractions.len() / 2;
+            (fractions[mid - 1] + fractions[mid]) / 2.0
+        } else {
+            fractions[fractions.len() / 2]
+        };
 
-    let final_results: Vec<LazyFrame> = results.lock().unwrap().clone();
+        local_results.push(MotifMethylationDegree {
+            contig: contig_id.clone(),
+            motif: motif.clone(),
+            median,
+            mean_read_cov,
+            n_motif_obs,
+            motif_occurences_total,
+        })
+     }
 
-    let read_methylation_df = concat(&final_results, UnionArgs::default())
-        .unwrap()
-        .collect()
-        .unwrap();
+     local_results
 
-    read_methylation_df
+        
+    }).collect();
+
+    Ok(results)
 }
 
-pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>, String> {
-    let mut motifs = Vec::new();
-
-    for motif in motifs_str {
+pub fn create_motifs(motifs_str: Vec<String>) -> Result<Vec<Motif>> {
+    motifs_str.into_iter().map(|motif| {
         let parts: Vec<&str> = motif.split("_").collect();
 
         if parts.len() != 3 {
-            return Err(format!(
+            anyhow::bail!(
                 "Invalid motif format '{}' encountered. Expected format: '<sequence>_<mod_type>_<mod_position>'",
                 motif
-            ));
+            );
         }
 
-        if parts.len() == 3 {
             let sequence = parts[0];
             let mod_type = parts[1];
-            let mod_position = match parts[2].parse::<u8>() {
-                Ok(pos) => pos,
-                Err(e) => {
-                    return Err(format!(
-                        "Failted to parse mod_position '{}' in motif '{}': {}",
-                        parts[2], motif, e
-                    ));
-                }
-            };
+            let mod_position = u8::from_str(parts[2]).with_context(|| {
+                format!("Failed to parse mod_position '{}' in motif '{}'.", parts[2], motif)
+            })?;
 
-            match Motif::new(sequence, mod_type, mod_position) {
-                Ok(motif) => motifs.push(motif),
-                Err(e) => {
-                    return Err(format!("Failed to create motif from '{}': {}", motif, e));
-                }
-            }
-        }
-    }
-    Ok(motifs)
+            Motif::new(sequence, mod_type, mod_position).with_context(|| {
+                format!("Failed to create motif from '{}'", motif)
+            })
+        
+    }).collect()
 }
 
 #[cfg(test)]
 mod tests {
+    use csv::ReaderBuilder;
+    use tempfile::NamedTempFile;
+    use std::{fs::File, io::{BufReader, Write}};
+
+    use crate::{data::{contig::Contig, GenomeWorkspaceBuilder}, extract_methylation_pattern::parse_to_methylation_record};
+
     use super::*;
 
     #[test]
-    fn test_calculate_methylation() {
-        let subpileup = df!(
-            "contig" => ["contig_3","contig_3","contig_3","contig_3","contig_3"],
-            "strand" => ["+", "+", "+", "-", "-"],
-            "mod_type" => ["a", "m", "a", "a", "a"],
-            "start" => [6, 8, 12, 7, 13],
-            "N_modified" => [15, 20, 5, 20 ,5],
-            "N_valid_cov" => [15, 20, 20, 20, 20],
-            "motif_mean" => [1.0, 1.0, 0.25, 1.0, 0.25]
-        )
-        .expect("Could not initialize dataframe");
+    fn test_calculate_methylation() -> Result<()> {
+        let mut pileup_file = NamedTempFile::new().unwrap();
+        writeln!(
+            pileup_file,
+            "contig_3\t6\t1\ta\t133\t+\t0\t1\t255,0,0\t15\t0.00\t15\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_3\t8\t1\tm\t133\t+\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_3\t12\t1\ta\t133\t+\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_3\t7\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_3\t13\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+        )?;
 
-        let subpileups = vec![subpileup];
 
-        let mut contig_map = ContigMap::new();
-        contig_map.insert("contig_3".to_string(), "TGGACGATCCCGATC".to_string());
 
+        let mut workspace_builder = GenomeWorkspaceBuilder::new();
+
+        // Add a mock contig to the workspace
+        workspace_builder.add_contig(Contig::new("contig_3".to_string(), "TGGACGATCCCGATC".to_string())).unwrap();
+
+
+        let file = File::open(pileup_file).unwrap();
+        let reader = BufReader::new(file);
+        let mut rdr = ReaderBuilder::new()
+            .has_headers(false)
+            .delimiter(b'\t')
+            .from_reader(reader);
+
+        for res in rdr.records() {
+            let record = res.unwrap();
+
+            let n_valid_cov_str = record.get(9).unwrap();
+            let n_valid_cov = n_valid_cov_str.parse().unwrap();
+            let meth_record =
+                parse_to_methylation_record("contig_3".to_string(), n_valid_cov, &record)
+                    .unwrap();
+            workspace_builder.add_record(meth_record).unwrap();
+        }
+
+        let workspace = workspace_builder.build();
+
+        
         let motifs = vec![
             Motif::new("GATC", "a", 1).unwrap(),
             Motif::new("GATC", "m", 3).unwrap(),
             Motif::new("GATC", "21839", 3).unwrap(),
         ];
+        let contig_methylation_pattern = calculate_contig_read_methylation_pattern(workspace, motifs, 1).unwrap();
 
-        let contig_methylation_pattern =
-            calculate_contig_read_methylation_pattern(contig_map, subpileups, motifs, 1);
-
-        println!("{:#?}", contig_methylation_pattern);
-
-        let expected_result = Column::new("median".into(), [0.625, 1.0]);
+        let expected_median_result = vec![0.625, 1.0];
+        let meth_result: Vec<f64> = contig_methylation_pattern.iter().map(|res| res.median).collect();
         assert_eq!(
-            contig_methylation_pattern.column("median").unwrap(),
-            &expected_result
+            meth_result,
+            expected_median_result
         );
 
-        let expected_mean_read_cov = Column::new("mean_read_cov".into(), [18.75, 20.0]);
+        let expected_mean_read_cov = vec![18.75, 20.0];
+        let meth_result: Vec<f64> = contig_methylation_pattern.iter().map(|res| res.mean_read_cov).collect();
         assert_eq!(
-            contig_methylation_pattern.column("mean_read_cov").unwrap(),
-            &expected_mean_read_cov
-        )
+            meth_result,
+            expected_mean_read_cov
+        );
+
+        let expected_n_motif_obs = vec![4, 1];
+        let meth_result: Vec<u32> = contig_methylation_pattern.iter().map(|res| res.n_motif_obs).collect();
+        assert_eq!(meth_result, expected_n_motif_obs);
+
+        Ok(())
     }
 
     #[test]
-    fn test_create_subpileups() {
-        let pileup = df!(
-            "contig" => ["contig_3","contig_3","contig_3","contig_3","contig_3","contig_4","contig_4","contig_4","contig_4"],
-            "strand" => ["+", "+", "+", "-", "-", "+", "+", "-", "-"],
-            "mod_type" => ["a", "m", "a", "a", "a", "m", "a", "a", "a"],
-            "start" => [6, 8, 12, 7, 13, 8, 12, 7, 13],
-            "N_modified" => [20, 20, 5, 20 ,5, 2, 0, 20 ,5],
-            "N_valid_cov" => [20 , 20, 20, 20, 20, 2, 2, 20, 20]
-        )
-        .expect("Could not init df")
-        .lazy();
-
-        let contig_ids = vec!["contig_3".to_string(), "contig_4".to_string()];
-
-        let subpileups_1 = create_subpileups(pileup.clone(), contig_ids.clone(), 3 as u32, 2);
-
-        assert_eq!(subpileups_1.len(), 2);
-
-        for subpileup in subpileups_1 {
-            let contig_id = match subpileup.column("contig") {
-                Ok(column) => match column.get(0) {
-                    Ok(value) => value.to_string().trim_matches('"').to_string(),
-                    Err(e) => {
-                        error!(
-                            "Could not get first value of subpileup from contig column: {}",
-                            e
-                        );
-                        return;
-                    }
-                },
-                Err(e) => {
-                    error!("Could not find contig column in subpileup: {}", e);
-                    return;
-                }
-            };
-
-            if contig_id == "contig_3" {
-                assert_eq!(subpileup.shape().0, 5);
-            } else {
-                assert_eq!(subpileup.shape().0, 2);
-            }
-        }
-
-        let subpileups_2 = create_subpileups(pileup, contig_ids, 1 as u32, 2);
-
-        for subpileup in subpileups_2 {
-            let contig_id = match subpileup.column("contig") {
-                Ok(column) => match column.get(0) {
-                    Ok(value) => value.to_string().trim_matches('"').to_string(),
-                    Err(e) => {
-                        error!(
-                            "Could not get first value of subpileup from contig column: {}",
-                            e
-                        );
-                        return;
-                    }
-                },
-                Err(e) => {
-                    error!("Could not find contig column in subpileup: {}", e);
-                    return;
-                }
-            };
-
-            if contig_id == "contig_3" {
-                assert_eq!(subpileup.shape().0, 5);
-            } else {
-                assert_eq!(subpileup.shape().0, 4);
-            }
-        }
+    fn test_create_motifs_success() {
+        let motifs_args = vec!["GATC_a_1".to_string()];
+        let result = create_motifs(motifs_args);
+        assert!(result.is_ok(), "Expected Ok, but got err: {:?}", result.err());
     }
+    #[test]
+    fn test_create_motifs_failure() {
+        let motifs_args = vec!["GATC_a_3".to_string()];
+        let result = create_motifs(motifs_args);
+        assert!(result.is_err(), "Expected Err, but got Ok: {:?}", result.ok());
+    }
+    
 }

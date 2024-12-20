@@ -1,131 +1,33 @@
+use anyhow::Result;
 use clap::Parser;
 use humantime::format_duration;
 use indicatif::HumanDuration;
-use log::{error, info};
-use polars::prelude::*;
-use std::{env, fs, path::Path, process, time::Instant};
-
-mod data_load;
-use data_load::{load_contigs, load_pileup_lazy};
-
-mod types;
+use log::info;
+use std::time::Instant;
 
 mod argparser;
+mod data;
+mod data_load;
+mod extract_methylation_pattern;
+mod processing;
+
+use crate::extract_methylation_pattern::extract_methylation_pattern;
 use argparser::Args;
 
-mod processing;
-use processing::{calculate_contig_read_methylation_pattern, create_motifs, create_subpileups};
-
-fn main() {
+fn main() -> Result<()> {
     // let guard = pprof::ProfilerGuard::new(1000).unwrap();
     let total_duration = Instant::now();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args = Args::parse();
-    info!("Running methylation_utils with {} threads", &args.threads);
 
-    env::set_var("POLARS_MAX_THREADS", &args.threads.to_string());
-
-    match env::var("POLARS_MAX_THREADS") {
-        Ok(_val) => {}
-        Err(e) => error!("WARNING: POLARS_MAX_THREADS is not set: {}", e),
-    }
-
-    let outpath = Path::new(&args.output);
-
-    match outpath.extension() {
-        Some(ext) if ext == "tsv" => {
-            if let Some(parent) = outpath.parent() {
-                fs::create_dir_all(parent).expect("Cannot create output dir");
-            }
-        }
-        Some(ext) => {
-            error!("Incorrect file extension: {:#?}. Should be tsv", ext);
-            process::exit(1);
-        }
-        None => {
-            error!("No filename provided");
-            process::exit(1);
+    match &args.command {
+        argparser::Commands::MethylationPattern(methyl_args) => {
+            let methyl_args = methyl_args.clone();
+            extract_methylation_pattern(methyl_args)?;
         }
     }
 
-    let preparation_duration = Instant::now();
-    let motifs = match args.motifs {
-        Some(motifs) => {
-            info!("Motifs loaded");
-            motifs
-        }
-        _ => {
-            error!("No motifs found");
-            process::exit(1)
-        }
-    };
-
-    let motifs = match create_motifs(motifs) {
-        Ok(motifs) => {
-            info!("Successfully parsed motifs.");
-            motifs
-        }
-        Err(e) => {
-            error!("{}", e);
-            process::exit(1);
-        }
-    };
-
-    info!("Loading pileup");
-    let lf_pileup = load_pileup_lazy(&args.pileup).expect("Error loading pileup");
-
-    info!("Loading assembly");
-    let contigs = load_contigs(&args.assembly).expect("Error loading assembly");
-    let contig_ids: Vec<String> = contigs.keys().cloned().collect();
-
-    if contig_ids.len() == 0 {
-        error!("No contigs are loaded!");
-        process::exit(1);
-    }
-
-    let batches = if args.batches == 0 {
-        info!("Loading pileup without batching");
-        contig_ids.len()
-    } else {
-        info!("Loading pileup with {} contigs at a time", args.batches);
-        args.batches
-    };
-
-    let subpileups =
-        create_subpileups(lf_pileup, contig_ids, args.min_valid_read_coverage, batches);
-
-    let elapsed_preparation_time = preparation_duration.elapsed();
-    info!(
-        "Data preparation took: {} - ({})",
-        HumanDuration(elapsed_preparation_time).to_string(),
-        format_duration(elapsed_preparation_time).to_string()
-    );
-
-    info!("Finding contig methylation pattern");
-    let finding_methylation_pattern_duration = Instant::now();
-    let mut contig_methylation_pattern =
-        calculate_contig_read_methylation_pattern(contigs, subpileups, motifs, args.threads);
-    let elapsed_finding_methylation_pattern_duration =
-        finding_methylation_pattern_duration.elapsed();
-    info!(
-        "Methylation pattern took: {} - ({})",
-        HumanDuration(elapsed_finding_methylation_pattern_duration).to_string(),
-        format_duration(elapsed_finding_methylation_pattern_duration).to_string()
-    );
-
-    match std::fs::File::create(outpath) {
-        Ok(mut f) => {
-            CsvWriter::new(&mut f)
-                .include_header(true)
-                .with_separator(b'\t')
-                .finish(&mut contig_methylation_pattern)
-                .unwrap();
-        }
-        Err(e) => {
-            println!("Error writing tsv file: {:?}", e);
-        }
-    };
     let elapsed_total_duration = total_duration.elapsed();
     info!(
         "Total time: {} - ({})",
@@ -139,4 +41,5 @@ fn main() {
     //     let mut file = File::create("flamegraph.svg").unwrap();
     //     report.flamegraph(&mut file).unwrap();
     // }
+    Ok(())
 }
