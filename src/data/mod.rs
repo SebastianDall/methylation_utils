@@ -4,7 +4,6 @@ pub mod methylation;
 use crate::data::contig::Contig;
 use ahash::AHashMap;
 use anyhow::{bail, Result};
-use log::error;
 use methylation::MethylationCoverage;
 use methylome::{ModType, Strand};
 
@@ -176,8 +175,7 @@ mod tests {
                 continue;
             }
             let meth_record =
-                parse_to_methylation_record("contig_3".to_string(), n_valid_cov, &record, 1)
-                    .unwrap();
+                parse_to_methylation_record("contig_3".to_string(), n_valid_cov, &record).unwrap();
             workspace_builder.add_record(meth_record).unwrap();
         }
 
@@ -240,8 +238,7 @@ mod tests {
             let n_valid_cov_str = record.get(9).unwrap();
             let n_valid_cov = n_valid_cov_str.parse().unwrap();
             let meth_record =
-                parse_to_methylation_record("contig_1".to_string(), n_valid_cov, &record, 1)
-                    .unwrap();
+                parse_to_methylation_record("contig_1".to_string(), n_valid_cov, &record).unwrap();
             let result = workspace_builder.add_record(meth_record);
             assert!(result.is_err());
         }
