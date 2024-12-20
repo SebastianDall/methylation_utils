@@ -31,8 +31,8 @@ pub struct MethylationPatternArgs {
 
     #[arg(
         long,
-        default_value_t = 10000,
-        help = "Number of contigs to load at a time. Lower number will take longer but use less memory."
+        default_value_t = 3000,
+        help = "Number of contigs to process at a time. Higher number will use more RAM."
     )]
     pub batches: usize,
 }
