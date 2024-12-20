@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use csv::{ReaderBuilder, StringRecord};
 use humantime::format_duration;
 use indicatif::HumanDuration;
@@ -64,6 +64,7 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
     if contigs.len() == 0 {
         anyhow::bail!("No contigs are loaded!");
     }
+    info!("Total contigs in assembly: {}", contigs.len());
 
     info!("Processing Pileup");
     let file = File::open(&args.pileup)?;
@@ -71,8 +72,9 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
     let mut rdr = ReaderBuilder::new()
         .has_headers(false)
         .delimiter(b'\t')
+        .flexible(false)
         .from_reader(reader);
-    let mut record = StringRecord::new();
+    let mut record = StringRecord::with_capacity(100, 18);
 
     let mut builder = GenomeWorkspaceBuilder::new();
 
@@ -83,28 +85,15 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
     let mut methylation_records: Vec<MethylationRecord> = Vec::new();
     let mut methylation_pattern_results: Vec<MotifMethylationDegree> = Vec::new();
 
-    let mut lines_processed = 0;
+    let mut batch_loading_duration = Instant::now();
     while rdr.read_record(&mut record)? {
-        let batch_loading_duration = Instant::now();
-        lines_processed += 1;
-        let n_valid_cov_str = record
-            .get(9)
-            .with_context(|| anyhow!("Missing contig at line {}", lines_processed))?;
-        let n_valid_cov = n_valid_cov_str.parse().with_context(|| {
-            format!(
-                "Invalid N_valid_cov value: {}. Occured at line {}",
-                n_valid_cov_str, lines_processed
-            )
-        })?;
-        // Skip entries with zero coverage
+        let n_valid_cov_str = record.get(9).expect("Missing coverage field.");
+        let n_valid_cov = n_valid_cov_str.parse().expect("Invalid coverage number."); // Skip entries with zero coverage
         if n_valid_cov < args.min_valid_read_coverage {
             continue;
         }
 
-        let contig_id = record
-            .get(0)
-            .ok_or_else(|| anyhow!("Missing contig at line {}", lines_processed))?
-            .to_string();
+        let contig_id = record.get(0).expect("Missing contig field.").to_string();
 
         if current_contig.as_ref() != Some(&contig_id) {
             current_contig = Some(contig_id.clone());
@@ -115,7 +104,7 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
                 info!(
                     "Loading {} contigs took: {}.",
                     &args.batches,
-                    HumanDuration(elapsed_batch_loading_duration).to_string()
+                    format_duration(elapsed_batch_loading_duration).to_string()
                 );
                 for meth_rec in methylation_records.drain(..) {
                     builder.add_record(meth_rec)?;
@@ -140,10 +129,11 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
 
                 methylation_pattern_results.append(&mut methylation_pattern);
 
-                contigs_processed += contigs_loaded;
+                contigs_processed += contigs_loaded - 1;
                 info!("Finished processing {}", contigs_processed);
 
                 builder = GenomeWorkspaceBuilder::new();
+                batch_loading_duration = Instant::now();
                 contigs_loaded = 1;
             }
 
@@ -154,8 +144,7 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
             builder.add_contig(contig.clone())?;
         }
 
-        let methylation_record =
-            parse_to_methylation_record(contig_id, n_valid_cov, &record, lines_processed)?;
+        let methylation_record = parse_to_methylation_record(contig_id, n_valid_cov, &record)?;
 
         methylation_records.push(methylation_record);
     }
@@ -171,7 +160,7 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
 
         methylation_pattern_results.append(&mut methylation_pattern);
         contigs_processed += contigs_loaded;
-        info!("Finished processing {} contigs", contigs_processed);
+        info!("Finished loading {} contigs", contigs_processed);
     }
 
     methylation_pattern_results.sort_by(|a, b| a.contig.cmp(&b.contig));
