@@ -31,46 +31,46 @@ pub fn calculate_contig_read_methylation_pattern(
     let motifs = Arc::new(motifs);
 
     let results: Vec<MotifMethylationDegree> = contigs.get_workspace().par_iter().flat_map(|(contig_id, contig)| {
-     let contig_seq = &contig.sequence;
+    let contig_seq = &contig.sequence;
 
-     let mut local_results = Vec::new();
+    let mut local_results = Vec::new();
 
-     for motif in motifs.iter() {
-         let mod_type = motif.mod_type;
+    for motif in motifs.iter() {
+        let mod_type = motif.mod_type;
 
-         let fwd_indices: Vec<usize> = find_motif_indices_in_contig(&contig_seq, motif);
-         let rev_indices: Vec<usize> = find_motif_indices_in_contig(&contig_seq, &motif.reverse_complement());
+        let fwd_indices: Vec<usize> = find_motif_indices_in_contig(&contig_seq, motif);
+        let rev_indices: Vec<usize> = find_motif_indices_in_contig(&contig_seq, &motif.reverse_complement());
 
-         if fwd_indices.is_empty() && rev_indices.is_empty() {
-             continue;
-         }
+        if fwd_indices.is_empty() && rev_indices.is_empty() {
+            continue;
+        }
 
-         // This is the actual number of motifs in the contig
-         let motif_occurences_total = fwd_indices.len() as u32 + rev_indices.len() as u32;
+        // This is the actual number of motifs in the contig
+        let motif_occurences_total = fwd_indices.len() as u32 + rev_indices.len() as u32;
 
-         let mut fwd_methylation = contig.get_methylated_positions(&fwd_indices, methylome::Strand::Positive, mod_type);
-         let mut rev_methylation = contig.get_methylated_positions(&rev_indices, methylome::Strand::Negative, mod_type);
+        let mut fwd_methylation = contig.get_methylated_positions(&fwd_indices, methylome::Strand::Positive, mod_type);
+        let mut rev_methylation = contig.get_methylated_positions(&rev_indices, methylome::Strand::Negative, mod_type);
 
-         fwd_methylation.append(&mut rev_methylation);
+        fwd_methylation.append(&mut rev_methylation);
 
-         let methylation_data: Vec<MethylationCoverage> = fwd_methylation.into_iter().filter_map(|maybe_cov| maybe_cov.cloned()).collect();
+        let methylation_data: Vec<MethylationCoverage> = fwd_methylation.into_iter().filter_map(|maybe_cov| maybe_cov.cloned()).collect();
 
-         if methylation_data.is_empty() {
-             continue;
-         }
+        if methylation_data.is_empty() {
+            continue;
+        }
 
-         // This is number of motif obervations with methylation data
-         let n_motif_obs = methylation_data.len() as u32;
+        // This is number of motif obervations with methylation data
+        let n_motif_obs = methylation_data.len() as u32;
          
-         let mean_read_cov = {
-             let total_cov: u64 = methylation_data.iter().map(|cov| cov.get_n_valid_cov() as u64).sum();
-             total_cov as f64 / methylation_data.len() as f64
-         };
+        let mean_read_cov = {
+            let total_cov: u64 = methylation_data.iter().map(|cov| cov.get_n_valid_cov() as u64).sum();
+            total_cov as f64 / methylation_data.len() as f64
+        };
 
-         let mut fractions: Vec<f64> = methylation_data
-            .iter()
-            .map(|cov| cov.fraction_modified())
-            .collect();
+        let mut fractions: Vec<f64> = methylation_data
+           .iter()
+           .map(|cov| cov.fraction_modified())
+           .collect();
 
         fractions.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let median = if fractions.len() % 2 == 0 {
@@ -80,14 +80,14 @@ pub fn calculate_contig_read_methylation_pattern(
             fractions[fractions.len() / 2]
         };
 
-         local_results.push(MotifMethylationDegree {
-             contig: contig_id.clone(),
-             motif: motif.clone(),
-             median,
-             mean_read_cov,
-             n_motif_obs,
-             motif_occurences_total,
-         })
+        local_results.push(MotifMethylationDegree {
+            contig: contig_id.clone(),
+            motif: motif.clone(),
+            median,
+            mean_read_cov,
+            n_motif_obs,
+            motif_occurences_total,
+        })
      }
 
      local_results
@@ -177,7 +177,7 @@ mod tests {
             let n_valid_cov_str = record.get(9).unwrap();
             let n_valid_cov = n_valid_cov_str.parse().unwrap();
             let meth_record =
-                parse_to_methylation_record("contig_3".to_string(), n_valid_cov, &record, 1)
+                parse_to_methylation_record("contig_3".to_string(), n_valid_cov, &record)
                     .unwrap();
             workspace_builder.add_record(meth_record).unwrap();
         }
