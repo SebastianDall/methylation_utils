@@ -29,6 +29,10 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
         "Running epimetheus 'methylation-pattern' with {} threads",
         &args.threads
     );
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(args.threads)
+        .build()
+        .context("Could not initialize threadpool")?;
 
     let outpath = Path::new(&args.output);
 
@@ -114,11 +118,8 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
 
                 info!("Calculating methylation patten.");
                 let calculate_methylation_pattern_duration = Instant::now();
-                let mut methylation_pattern = calculate_contig_read_methylation_pattern(
-                    workspace,
-                    motifs.clone(),
-                    args.threads,
-                )?;
+                let mut methylation_pattern =
+                    calculate_contig_read_methylation_pattern(workspace, motifs.clone(), &pool)?;
                 let elapsed_calculate_methylation_pattern_duration =
                     calculate_methylation_pattern_duration.elapsed();
                 info!(
@@ -156,7 +157,7 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
         let workspace = builder.build();
 
         let mut methylation_pattern =
-            calculate_contig_read_methylation_pattern(workspace, motifs.clone(), args.threads)?;
+            calculate_contig_read_methylation_pattern(workspace, motifs.clone(), &pool)?;
 
         methylation_pattern_results.append(&mut methylation_pattern);
         contigs_processed += contigs_loaded;

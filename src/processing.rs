@@ -20,17 +20,11 @@ pub struct MotifMethylationDegree {
 pub fn calculate_contig_read_methylation_pattern(
     contigs: GenomeWorkspace,
     motifs: Vec<Motif>,
-    num_threads: usize,
+    pool: &rayon::ThreadPool,
 ) -> Result<Vec<MotifMethylationDegree>> {
-
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build()
-        .expect("Could not initialize threadpool");
-
     let motifs = Arc::new(motifs);
 
-    let results: Vec<MotifMethylationDegree> = contigs.get_workspace().par_iter().flat_map(|(contig_id, contig)| {
+    let results: Vec<MotifMethylationDegree> = pool.install(|| {contigs.get_workspace().par_iter().flat_map(|(contig_id, contig)| {
     let contig_seq = &contig.sequence;
 
     let mut local_results = Vec::new();
@@ -93,7 +87,8 @@ pub fn calculate_contig_read_methylation_pattern(
      local_results
 
         
-    }).collect();
+    }).collect()
+    });
 
     Ok(results)
 }
@@ -134,6 +129,8 @@ mod tests {
 
     #[test]
     fn test_calculate_methylation() -> Result<()> {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+        
         let mut pileup_file = NamedTempFile::new().unwrap();
         writeln!(
             pileup_file,
@@ -190,7 +187,7 @@ mod tests {
             Motif::new("GATC", "m", 3).unwrap(),
             Motif::new("GATC", "21839", 3).unwrap(),
         ];
-        let contig_methylation_pattern = calculate_contig_read_methylation_pattern(workspace, motifs, 1).unwrap();
+        let contig_methylation_pattern = calculate_contig_read_methylation_pattern(workspace, motifs, &pool).unwrap();
 
         let expected_median_result = vec![0.625, 1.0];
         let meth_result: Vec<f64> = contig_methylation_pattern.iter().map(|res| res.median).collect();
