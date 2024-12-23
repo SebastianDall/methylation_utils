@@ -184,7 +184,10 @@ mod tests {
     fn test_unidentified_motif_type() {
         let result = Motif::new("GATC", "d", 1);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "Unsupported mod type: d");
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Unsupported modification type: d"
+        );
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use serde::de::{self, Deserialize, Deserializer};
 use std::fmt::Display;
 
 use anyhow::{bail, Result};
@@ -27,6 +28,20 @@ impl Strand {
         match self {
             Strand::Positive => "+".to_string(),
             Strand::Negative => "-".to_string(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Strand {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        match Strand::from_str(&s) {
+            Ok(strand) => Ok(strand),
+            Err(e) => Err(de::Error::custom(e.to_string())),
         }
     }
 }

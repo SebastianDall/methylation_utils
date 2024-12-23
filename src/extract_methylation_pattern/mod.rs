@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::{
-    data::{GenomeWorkspaceBuilder, MethylationRecord},
+    data::{pileup::PileupRecord, GenomeWorkspaceBuilder, MethylationRecord},
     data_load::load_contigs,
 };
 
@@ -79,7 +79,6 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
         .delimiter(b'\t')
         .flexible(false)
         .from_reader(reader);
-    let mut record = StringRecord::with_capacity(100, 18);
 
     let mut builder = GenomeWorkspaceBuilder::new();
 
@@ -91,16 +90,16 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
     let mut methylation_pattern_results: Vec<MotifMethylationDegree> = Vec::new();
 
     let mut batch_loading_duration = Instant::now();
-    while rdr.read_record(&mut record)? {
-        let n_valid_cov_str = record.get(9).expect("Missing coverage field.");
-        let n_valid_cov = n_valid_cov_str.parse().expect("Invalid coverage number."); // Skip entries with zero coverage
-        if n_valid_cov < args.min_valid_read_coverage {
+    for row in rdr.deserialize::<PileupRecord>() {
+        let pileup_rec = row?;
+
+        if pileup_rec.n_valid_cov < args.min_valid_read_coverage {
             continue;
         }
 
-        let contig_id = record.get(0).expect("Missing contig field.").to_string();
+        let contig_id = &pileup_rec.contig;
 
-        if current_contig.as_ref() != Some(&contig_id) {
+        if current_contig.as_ref() != Some(contig_id) {
             current_contig = Some(contig_id.clone());
             contigs_loaded += 1;
 
@@ -139,14 +138,14 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
                 contigs_loaded = 1;
             }
 
-            let contig = match contigs.get(&contig_id) {
+            let contig = match contigs.get(contig_id) {
                 Some(contig) => contig,
                 None => bail!("Contig not found in assembly: {contig_id}"),
             };
             builder.add_contig(contig.clone())?;
         }
 
-        let methylation_record = parse_to_methylation_record(contig_id, n_valid_cov, &record)?;
+        let methylation_record = pileup_rec.try_into()?;
 
         methylation_records.push(methylation_record);
     }

@@ -1,11 +1,14 @@
 pub mod contig;
 pub mod methylation;
+pub mod pileup;
 
 use crate::data::contig::Contig;
 use ahash::AHashMap;
 use anyhow::{bail, Result};
 use methylation::MethylationCoverage;
 use methylome::{ModType, Strand};
+use pileup::PileupRecord;
+use std::convert::TryFrom;
 
 pub struct MethylationRecord {
     contig: String,
@@ -34,6 +37,23 @@ impl MethylationRecord {
 
     pub fn get_contig_id(&self) -> String {
         self.contig.to_string()
+    }
+}
+
+impl TryFrom<PileupRecord> for MethylationRecord {
+    type Error = anyhow::Error;
+
+    fn try_from(pileup_rec: PileupRecord) -> anyhow::Result<Self> {
+        let methylation_record =
+            MethylationCoverage::new(pileup_rec.n_modified, pileup_rec.n_valid_cov)?;
+
+        Ok(MethylationRecord::new(
+            pileup_rec.contig,
+            pileup_rec.position,
+            pileup_rec.strand,
+            pileup_rec.mod_type,
+            methylation_record,
+        ))
     }
 }
 

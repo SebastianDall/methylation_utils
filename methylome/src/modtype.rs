@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use serde::de::{self, Deserialize, Deserializer};
 use std::fmt;
 
 /// Represents a DNA base modification type.
@@ -51,12 +52,13 @@ impl ModType {
     /// assert!(invalid.is_err());
     /// ```
     pub fn from_str(mod_type: &str) -> Result<Self> {
-        match mod_type {
+        let mod_type = match mod_type {
             "a" => Ok(ModType::SixMA),
             "m" => Ok(ModType::FiveMC),
             "21839" => Ok(ModType::FourMC),
-            _ => bail!("Unsupported mod type: {}", mod_type),
-        }
+            _ => bail!("Unsupported modification type: {}", mod_type),
+        };
+        mod_type
     }
 
     /// Returns the pileup code corresponding to the modification type.
@@ -106,6 +108,20 @@ impl fmt::Display for ModType {
             ModType::SixMA => write!(f, "6mA (a)"),
             ModType::FiveMC => write!(f, "5mC (m)"),
             ModType::FourMC => write!(f, "4mC (21839)"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ModType {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        match ModType::from_str(&s) {
+            Ok(mod_type) => Ok(mod_type),
+            Err(e) => Err(de::Error::custom(e.to_string())),
         }
     }
 }
