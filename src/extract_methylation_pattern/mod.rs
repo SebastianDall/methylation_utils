@@ -13,15 +13,16 @@ use std::{
 use crate::{
     data::{GenomeWorkspaceBuilder, MethylationRecord},
     data_load::load_contigs,
-    processing::{
-        calculate_contig_read_methylation_pattern, create_motifs, MotifMethylationDegree,
-    },
 };
 
 pub mod args;
+pub mod processing;
 pub mod utils;
 
 pub use args::MethylationPatternArgs;
+pub use processing::{
+    calculate_contig_read_methylation_pattern, create_motifs, MotifMethylationDegree,
+};
 pub use utils::parse_to_methylation_record;
 
 pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {

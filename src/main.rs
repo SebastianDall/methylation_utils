@@ -9,7 +9,6 @@ mod argparser;
 mod data;
 mod data_load;
 mod extract_methylation_pattern;
-mod processing;
 
 use crate::extract_methylation_pattern::extract_methylation_pattern;
 use argparser::Args;
