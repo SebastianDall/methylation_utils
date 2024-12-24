@@ -123,7 +123,7 @@ mod tests {
     use tempfile::NamedTempFile;
     use std::{fs::File, io::{BufReader, Write}};
 
-    use crate::{data::{contig::Contig, GenomeWorkspaceBuilder}, extract_methylation_pattern::parse_to_methylation_record};
+    use crate::data::{contig::Contig, pileup::PileupRecord, GenomeWorkspaceBuilder};
 
     use super::*;
 
@@ -168,14 +168,10 @@ mod tests {
             .delimiter(b'\t')
             .from_reader(reader);
 
-        for res in rdr.records() {
+        for res in rdr.deserialize::<PileupRecord>() {
             let record = res.unwrap();
 
-            let n_valid_cov_str = record.get(9).unwrap();
-            let n_valid_cov = n_valid_cov_str.parse().unwrap();
-            let meth_record =
-                parse_to_methylation_record("contig_3".to_string(), n_valid_cov, &record)
-                    .unwrap();
+            let meth_record = record.try_into().unwrap();
             workspace_builder.add_record(meth_record).unwrap();
         }
 

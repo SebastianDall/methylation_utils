@@ -18,7 +18,6 @@ use crate::{
 
 pub mod args;
 pub mod processing;
-pub mod utils;
 
 pub use args::MethylationPatternArgs;
 pub use processing::{
