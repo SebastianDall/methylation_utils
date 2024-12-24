@@ -1,8 +1,9 @@
 use anyhow::{bail, Context, Result};
-use csv::{ReaderBuilder, StringRecord};
+use csv::ReaderBuilder;
 use humantime::format_duration;
 use indicatif::HumanDuration;
 use log::info;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::{
     fs::{self, File},
     io::{BufReader, BufWriter, Write},
@@ -23,7 +24,6 @@ pub use args::MethylationPatternArgs;
 pub use processing::{
     calculate_contig_read_methylation_pattern, create_motifs, MotifMethylationDegree,
 };
-pub use utils::parse_to_methylation_record;
 
 pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
     info!(
@@ -86,7 +86,7 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
     let mut contigs_loaded = 0;
     let mut contigs_processed = 0;
 
-    let mut methylation_records: Vec<MethylationRecord> = Vec::new();
+    let mut pileup_records: Vec<PileupRecord> = Vec::new();
     let mut methylation_pattern_results: Vec<MotifMethylationDegree> = Vec::new();
 
     let mut batch_loading_duration = Instant::now();
@@ -110,6 +110,16 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
                     &args.batches,
                     format_duration(elapsed_batch_loading_duration).to_string()
                 );
+                let pileup_records_batch = std::mem::take(&mut pileup_records);
+                let to_methylation_records_results: Result<Vec<MethylationRecord>, anyhow::Error> =
+                    pool.install(|| {
+                        pileup_records_batch
+                            .into_par_iter()
+                            .map(|pr| pr.try_into())
+                            .collect()
+                    });
+                let mut methylation_records = to_methylation_records_results?;
+
                 for meth_rec in methylation_records.drain(..) {
                     builder.add_record(meth_rec)?;
                 }
@@ -145,12 +155,21 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
             builder.add_contig(contig.clone())?;
         }
 
-        let methylation_record = pileup_rec.try_into()?;
+        // let methylation_record = pileup_rec.try_into()?;
 
-        methylation_records.push(methylation_record);
+        // methylation_records.push(methylation_record);
+        pileup_records.push(pileup_rec);
     }
 
-    if !methylation_records.is_empty() {
+    if !pileup_records.is_empty() {
+        let to_methylation_records_results: Result<Vec<MethylationRecord>, anyhow::Error> = pool
+            .install(|| {
+                pileup_records
+                    .into_par_iter()
+                    .map(|pr| pr.try_into())
+                    .collect()
+            });
+        let mut methylation_records = to_methylation_records_results?;
         for meth_rec in methylation_records.drain(..) {
             builder.add_record(meth_rec)?;
         }
