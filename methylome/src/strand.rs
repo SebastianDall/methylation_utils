@@ -28,6 +28,17 @@ impl Strand {
 /// Should be either:
 /// - +: Positive
 /// - -: Negative
+///
+/// # Examples
+/// ```
+/// use methylome::Strand;
+///
+/// let strand = "+".parse::<Strand>().unwrap();
+/// assert_eq!(strand, Strand::Positive);
+///
+/// let invalid_strand = "p".parse::<Strand>();
+/// assert!(invalid_strand.is_err());
+/// ```
 impl FromStr for Strand {
     type Err = anyhow::Error;
 
