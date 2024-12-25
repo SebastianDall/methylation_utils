@@ -13,7 +13,7 @@ pub fn parse_to_methylation_record(
         .get(1)
         .ok_or_else(|| anyhow!("Missing position field."))?
         .parse()
-        .map_err(|| anyhow!("Invalid position field"));
+        .map_err(|_| anyhow!("Invalid position field"))?;
 
     let mod_type: ModType = record
         .get(3)
@@ -29,7 +29,7 @@ pub fn parse_to_methylation_record(
         .get(11)
         .ok_or_else(|| anyhow!("Missing n_modified field."))?
         .parse()
-        .map_err(|| "Invalid n_modified field")?;
+        .map_err(|_| anyhow!("Invalid n_modified field"))?;
 
     let methylation = MethylationCoverage::new(n_modified, n_valid_cov)?;
 

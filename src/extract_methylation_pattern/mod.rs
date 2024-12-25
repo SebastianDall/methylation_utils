@@ -91,7 +91,7 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
             .get(9)
             .ok_or_else(|| anyhow!("Missing n_valid_coverage field"))?
             .parse()
-            .map_err(|| anyhow!("Invalid coverage number."));
+            .map_err(|_| anyhow!("Invalid coverage number."))?;
         if n_valid_cov < args.min_valid_read_coverage {
             continue;
         }

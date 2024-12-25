@@ -105,6 +105,7 @@ mod tests {
     use super::*;
     use anyhow::Result;
     use csv::ReaderBuilder;
+    use std::str::FromStr;
     use std::{
         fs::File,
         io::{BufReader, Write},
