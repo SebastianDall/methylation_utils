@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 /// Represents a DNA base modification type.
 ///
@@ -26,39 +26,6 @@ pub enum ModType {
 }
 
 impl ModType {
-    /// Parses a modification type from a string.
-    ///
-    /// The input string must match one of the following:
-    /// - `"a"` for `SixMA` (6mA)
-    /// - `"m"` for `FiveMC` (5mC)
-    /// - `"21839"` for `FourMC` (4mC)
-    ///
-    /// # Arguments
-    /// - `mod_type`: A string slice representing the modification type.
-    ///
-    /// # Returns
-    /// - `Ok(ModType)` if the string matches a supported modification type.
-    /// - `Err` if the string does not match any supported modification type.
-    ///
-    /// # Examples
-    /// ```
-    /// use methylome::ModType;
-    ///
-    /// let mod_type = ModType::from_str("a").unwrap();
-    /// assert_eq!(mod_type, ModType::SixMA);
-    ///
-    /// let invalid = ModType::from_str("unsupported");
-    /// assert!(invalid.is_err());
-    /// ```
-    pub fn from_str(mod_type: &str) -> Result<Self> {
-        match mod_type {
-            "a" => Ok(ModType::SixMA),
-            "m" => Ok(ModType::FiveMC),
-            "21839" => Ok(ModType::FourMC),
-            _ => bail!("Unsupported mod type: {}", mod_type),
-        }
-    }
-
     /// Returns the pileup code corresponding to the modification type.
     ///
     /// Pileup codes are compact representations of modification types used
@@ -109,3 +76,72 @@ impl fmt::Display for ModType {
         }
     }
 }
+
+/// Parses a modification type from a string.
+///
+/// The input string must match one of the following:
+/// - `"a"` for `SixMA` (6mA)
+/// - `"m"` for `FiveMC` (5mC)
+/// - `"21839"` for `FourMC` (4mC)
+///
+/// # Arguments
+/// - `mod_type`: A string slice representing the modification type.
+///
+/// # Returns
+/// - `Ok(ModType)` if the string matches a supported modification type.
+/// - `Err` if the string does not match any supported modification type.
+///
+/// # Examples
+/// ```
+/// use methylome::ModType;
+///
+/// let mod_type = ModType::from_str("a").unwrap();
+/// assert_eq!(mod_type, ModType::SixMA);
+///
+/// let invalid = ModType::from_str("unsupported");
+/// assert!(invalid.is_err());
+/// ```
+impl FromStr for ModType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "a" => Ok(ModType::SixMA),
+            "m" => Ok(ModType::FiveMC),
+            "21839" => Ok(ModType::FourMC),
+            _ => bail!("Unsupported mod type: {}", s),
+        }
+    }
+}
+// /// Parses a modification type from a string.
+// ///
+// /// The input string must match one of the following:
+// /// - `"a"` for `SixMA` (6mA)
+// /// - `"m"` for `FiveMC` (5mC)
+// /// - `"21839"` for `FourMC` (4mC)
+// ///
+// /// # Arguments
+// /// - `mod_type`: A string slice representing the modification type.
+// ///
+// /// # Returns
+// /// - `Ok(ModType)` if the string matches a supported modification type.
+// /// - `Err` if the string does not match any supported modification type.
+// ///
+// /// # Examples
+// /// ```
+// /// use methylome::ModType;
+// ///
+// /// let mod_type = ModType::from_str("a").unwrap();
+// /// assert_eq!(mod_type, ModType::SixMA);
+// ///
+// /// let invalid = ModType::from_str("unsupported");
+// /// assert!(invalid.is_err());
+// /// ```
+// pub fn from_str(mod_type: &str) -> Result<Self> {
+//     match mod_type {
+//         "a" => Ok(ModType::SixMA),
+//         "m" => Ok(ModType::FiveMC),
+//         "21839" => Ok(ModType::FourMC),
+//         _ => bail!("Unsupported mod type: {}", mod_type),
+//     }
+// }
