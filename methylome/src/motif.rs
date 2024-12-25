@@ -1,5 +1,6 @@
 use crate::{IupacBase, ModType};
 use anyhow::{bail, Result};
+use std::str::FromStr;
 
 /// Represents a biological motif, which includes a nucleotide sequence,
 /// its modification type, and the position of the modification.

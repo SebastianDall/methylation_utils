@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use csv::{ReaderBuilder, StringRecord};
 use humantime::format_duration;
 use indicatif::HumanDuration;
@@ -87,13 +87,19 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
 
     let mut batch_loading_duration = Instant::now();
     while rdr.read_record(&mut record)? {
-        let n_valid_cov_str = record.get(9).expect("Missing coverage field.");
-        let n_valid_cov = n_valid_cov_str.parse().expect("Invalid coverage number."); // Skip entries with zero coverage
+        let n_valid_cov: u32 = record
+            .get(9)
+            .ok_or_else(|| anyhow!("Missing n_valid_coverage field"))?
+            .parse()
+            .map_err(|_| anyhow!("Invalid coverage number."))?;
         if n_valid_cov < args.min_valid_read_coverage {
             continue;
         }
 
-        let contig_id = record.get(0).expect("Missing contig field.").to_string();
+        let contig_id = record
+            .get(0)
+            .ok_or_else(|| anyhow!("Missing contig field"))?
+            .to_string();
 
         if current_contig.as_ref() != Some(&contig_id) {
             current_contig = Some(contig_id.clone());

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use csv::StringRecord;
 use methylome::{ModType, Strand};
 
@@ -9,19 +9,27 @@ pub fn parse_to_methylation_record(
     n_valid_cov: u32,
     record: &StringRecord,
 ) -> Result<MethylationRecord> {
-    let position_str = record.get(1).expect("Missing position field");
-    let position: usize = position_str.parse().expect("Error parsing position.");
-
-    let mod_type_str = record.get(3).expect("Missing mod_type field.");
-    let mod_type = ModType::from_str(mod_type_str)?;
-
-    let strand_str = record.get(5).expect("Missing strand field.");
-    let strand = Strand::from_str(strand_str)?;
-
-    let n_modified_str = record.get(11).expect("Missing n_modified field.");
-    let n_modified: u32 = n_modified_str
+    let position: usize = record
+        .get(1)
+        .ok_or_else(|| anyhow!("Missing position field."))?
         .parse()
-        .expect("Error parsing n_modified field");
+        .map_err(|_| anyhow!("Invalid position field"))?;
+
+    let mod_type: ModType = record
+        .get(3)
+        .ok_or_else(|| anyhow!("Missing modification type field."))?
+        .parse()?;
+
+    let strand: Strand = record
+        .get(5)
+        .ok_or_else(|| anyhow!("Missing strand field"))?
+        .parse()?;
+
+    let n_modified: u32 = record
+        .get(11)
+        .ok_or_else(|| anyhow!("Missing n_modified field."))?
+        .parse()
+        .map_err(|_| anyhow!("Invalid n_modified field"))?;
 
     let methylation = MethylationCoverage::new(n_modified, n_valid_cov)?;
 
