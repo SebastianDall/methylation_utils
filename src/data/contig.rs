@@ -1,7 +1,7 @@
 use ahash::AHashMap;
 use anyhow::{bail, Result};
 
-use super::methylation::*;
+use super::{methylation::*, MethylationRecord};
 use methylome::{ModType, Strand};
 
 #[derive(Clone)]
@@ -37,11 +37,25 @@ impl Contig {
 
         let key = (position, strand.clone(), mod_type.clone());
 
-        // if self.methylated_positions.contains_key(&key) {
-        //     bail!("Methylation record already store for: {} - strand ({}) - modification type ({}) - position '{}'",self.id, strand,mod_type, position)
-        // }
-
         self.methylated_positions.insert(key, meth_coverage);
+        Ok(())
+    }
+
+    pub fn add_methylation_record(&mut self, record: MethylationRecord) -> anyhow::Result<()> {
+        if self.id != record.contig {
+            bail!(
+                "Contig id error: Methylation record id '{}'. Contig id: {}",
+                record.contig,
+                self.id
+            )
+        }
+
+        self.add_methylation(
+            record.position,
+            record.strand,
+            record.mod_type,
+            record.methylation,
+        )?;
         Ok(())
     }
 
