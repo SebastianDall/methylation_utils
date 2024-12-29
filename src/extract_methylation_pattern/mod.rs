@@ -19,6 +19,7 @@ use crate::{
 };
 
 pub mod args;
+pub mod batch_loader;
 pub mod utils;
 
 pub use args::MethylationPatternArgs;
@@ -78,7 +79,7 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
 
     let mut builder = GenomeWorkspaceBuilder::new();
 
-    let mut current_contig: Option<String> = None;
+    let mut current_contig_id: Option<String> = None;
     let mut contigs_loaded = 0;
     let mut contigs_processed = 0;
 
@@ -101,58 +102,56 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
             .ok_or_else(|| anyhow!("Missing contig field"))?
             .to_string();
 
-        if current_contig.as_ref() != Some(&contig_id) {
-            current_contig = Some(contig_id.clone());
+        let mut current_contig_loaded = if current_contig_id.as_ref() != Some(&contig_id) {
+            current_contig_id = Some(contig_id.clone());
             contigs_loaded += 1;
 
-            if contigs_loaded > args.batches {
-                let elapsed_batch_loading_duration = batch_loading_duration.elapsed();
-                info!(
-                    "Loading {} contigs took: {}.",
-                    &args.batches,
-                    format_duration(elapsed_batch_loading_duration).to_string()
-                );
-                for meth_rec in methylation_records.drain(..) {
-                    builder.add_record(meth_rec)?;
-                }
+            contigs
+                .get(&contig_id)
+                .with_context(|| format!("Contig not found in assembly: {contig_id}"))?
+                .clone()
+            // builder.add_contig(contig.clone())?;
+        } else {
+            bail!("Get out")
+        };
 
-                let workspace = builder.build();
-
-                info!("Calculating methylation patten.");
-                let calculate_methylation_pattern_duration = Instant::now();
-                let mut methylation_pattern = calculate_contig_read_methylation_pattern(
-                    workspace,
-                    motifs.clone(),
-                    args.threads,
-                )?;
-                let elapsed_calculate_methylation_pattern_duration =
-                    calculate_methylation_pattern_duration.elapsed();
-                info!(
-                    "Calculating methylation pattern took: {} - ({})",
-                    HumanDuration(elapsed_calculate_methylation_pattern_duration).to_string(),
-                    format_duration(elapsed_calculate_methylation_pattern_duration).to_string()
-                );
-
-                methylation_pattern_results.append(&mut methylation_pattern);
-
-                contigs_processed += contigs_loaded - 1;
-                info!("Finished processing {}", contigs_processed);
-
-                builder = GenomeWorkspaceBuilder::new();
-                batch_loading_duration = Instant::now();
-                contigs_loaded = 1;
+        if contigs_loaded > args.batches {
+            let elapsed_batch_loading_duration = batch_loading_duration.elapsed();
+            info!(
+                "Loading {} contigs took: {}.",
+                &args.batches,
+                format_duration(elapsed_batch_loading_duration).to_string()
+            );
+            for meth_rec in methylation_records.drain(..) {
+                builder.add_record(meth_rec)?;
             }
 
-            let contig = match contigs.get(&contig_id) {
-                Some(contig) => contig,
-                None => bail!("Contig not found in assembly: {contig_id}"),
-            };
-            builder.add_contig(contig.clone())?;
+            let workspace = builder.build();
+
+            info!("Calculating methylation patten.");
+            let calculate_methylation_pattern_duration = Instant::now();
+            let mut methylation_pattern =
+                calculate_contig_read_methylation_pattern(workspace, motifs.clone(), args.threads)?;
+            let elapsed_calculate_methylation_pattern_duration =
+                calculate_methylation_pattern_duration.elapsed();
+            info!(
+                "Calculating methylation pattern took: {} - ({})",
+                HumanDuration(elapsed_calculate_methylation_pattern_duration).to_string(),
+                format_duration(elapsed_calculate_methylation_pattern_duration).to_string()
+            );
+
+            methylation_pattern_results.append(&mut methylation_pattern);
+
+            contigs_processed += contigs_loaded - 1;
+            info!("Finished processing {}", contigs_processed);
+
+            builder = GenomeWorkspaceBuilder::new();
+            batch_loading_duration = Instant::now();
+            contigs_loaded = 1;
         }
 
         let methylation_record = parse_to_methylation_record(contig_id, n_valid_cov, &record)?;
-
-        methylation_records.push(methylation_record);
+        current_contig_loaded.add_methylation_record(methylation_record)?;
     }
 
     if !methylation_records.is_empty() {
