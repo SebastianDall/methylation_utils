@@ -121,3 +121,117 @@ impl<R: BufRead> Iterator for BatchLoader<R> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ahash::AHashMap;
+    use csv::ReaderBuilder;
+    use std::{
+        fs::File,
+        io::{BufReader, Write},
+    };
+    use tempfile::NamedTempFile;
+
+    use crate::data::{contig::Contig, methylation::MethylationCoverage};
+
+    use super::BatchLoader;
+    #[test]
+    fn test_batch_loader() -> anyhow::Result<()> {
+        let mut pileup_file = NamedTempFile::new().unwrap();
+        writeln!(
+            pileup_file,
+            "contig_3\t6\t1\ta\t133\t+\t0\t1\t255,0,0\t15\t0.00\t15\t123\t0\t0\t6\t0\t0"
+        )
+        .unwrap();
+        writeln!(
+            pileup_file,
+            "contig_3\t8\t1\tm\t133\t+\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
+        )
+        .unwrap();
+        writeln!(
+            pileup_file,
+            "contig_3\t12\t1\ta\t133\t+\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+        )
+        .unwrap();
+        writeln!(
+            pileup_file,
+            "contig_3\t7\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
+        )
+        .unwrap();
+        writeln!(
+            pileup_file,
+            "contig_3\t13\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+        )
+        .unwrap();
+
+        let mut assembly = AHashMap::new();
+        assembly.insert(
+            "contig_3".to_string(),
+            Contig::new("contig_3".to_string(), "TGGACGATCCCGATC".to_string()),
+        );
+
+        let file = File::open(pileup_file).unwrap();
+        let reader = BufReader::new(file);
+        let batch_loader = BatchLoader::new(reader, assembly, 1, 1);
+
+        for ws in batch_loader {
+            let workspace = ws?;
+            let contigs_in_workspace = workspace.get_workspace();
+
+            assert_eq!(contigs_in_workspace.len(), 1);
+            assert_eq!(
+                contigs_in_workspace.get("contig_3").unwrap().sequence,
+                "TGGACGATCCCGATC".to_string()
+            );
+        }
+
+        Ok(())
+    }
+    fn test_batch_loader_w_multi() -> anyhow::Result<()> {
+        let mut pileup_file = NamedTempFile::new().unwrap();
+        writeln!(
+            pileup_file,
+            "contig_3\t6\t1\ta\t133\t+\t0\t1\t255,0,0\t15\t0.00\t15\t123\t0\t0\t6\t0\t0"
+        )
+        .unwrap();
+        writeln!(
+            pileup_file,
+            "contig_3\t8\t1\tm\t133\t+\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
+        )
+        .unwrap();
+        writeln!(
+            pileup_file,
+            "contig_4\t12\t1\ta\t133\t+\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+        )
+        .unwrap();
+        writeln!(
+            pileup_file,
+            "contig_4\t7\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
+        )
+        .unwrap();
+        writeln!(
+            pileup_file,
+            "contig_4\t13\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+        )
+        .unwrap();
+
+        let mut assembly = AHashMap::new();
+        assembly.insert(
+            "contig_3".to_string(),
+            Contig::new("contig_3".to_string(), "TGGACGATCCCGATC".to_string()),
+        );
+
+        let file = File::open(pileup_file).unwrap();
+        let reader = BufReader::new(file);
+        let batch_loader = BatchLoader::new(reader, assembly, 2, 1);
+
+        for ws in batch_loader {
+            let workspace = ws?;
+            let contigs_in_workspace = workspace.get_workspace();
+
+            assert_eq!(contigs_in_workspace.len(), 2);
+        }
+
+        Ok(())
+    }
+}
