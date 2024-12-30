@@ -96,6 +96,10 @@ impl GenomeWorkspace {
     fn get_mut_contig(&mut self, id: &str) -> Option<&mut Contig> {
         self.contigs.get_mut(id)
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.contigs.is_empty()
+    }
 }
 
 #[cfg(test)]
