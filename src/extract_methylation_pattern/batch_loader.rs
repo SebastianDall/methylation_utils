@@ -1,6 +1,6 @@
 use ahash::AHashMap;
 use anyhow::{anyhow, Context};
-use log::debug;
+use log::{debug, warn};
 use std::io::BufRead;
 
 use crate::data::{contig::Contig, GenomeWorkspace, GenomeWorkspaceBuilder};
@@ -31,7 +31,12 @@ impl<R: BufRead> BatchLoader<R> {
             .flexible(false)
             .from_reader(reader);
 
-        let size = if batch_size == 0 { 1 } else { batch_size };
+        let size = if batch_size == 0 {
+            warn!("Batch size cannot be zero. Defaulting to 1.");
+            1
+        } else {
+            batch_size
+        };
 
         BatchLoader {
             reader: rdr,
@@ -76,7 +81,6 @@ impl<R: BufRead> Iterator for BatchLoader<R> {
 
             if Some(&contig_id) != self.current_contig_id.as_ref() {
                 debug!("Current contig id in line: {}", &contig_id);
-
                 debug!(
                     "Current contig being added: {}",
                     self.current_contig
@@ -84,24 +88,21 @@ impl<R: BufRead> Iterator for BatchLoader<R> {
                         .map(|c| c.id.to_string())
                         .unwrap_or("None".to_string())
                 );
+
+                // Add the current contig to builder.
                 if let Some(old_contig) = self.current_contig.take() {
                     debug!("Adding contig to builder");
                     if let Err(e) = builder.add_contig(old_contig) {
                         return Some(Err(e));
                     }
-
+                    self.contigs_loaded_in_batch += 1;
                     debug!(
                         "Contigs loaded in batch: {}. Batch size is: {}",
                         self.contigs_loaded_in_batch, self.batch_size
                     );
-                    if self.contigs_loaded_in_batch == self.batch_size {
-                        self.contigs_loaded_in_batch = 0;
-                        return Some(Ok(builder.build()));
-                    }
                 };
 
                 self.current_contig_id = Some(contig_id.clone());
-                self.contigs_loaded_in_batch += 1;
 
                 let contig_key = self.current_contig_id.as_ref().unwrap();
                 let new_contig = match self.assembly.get(contig_key) {
@@ -123,6 +124,11 @@ impl<R: BufRead> Iterator for BatchLoader<R> {
                 if let Err(e) = c.add_methylation_record(meth) {
                     return Some(Err(e));
                 }
+            }
+
+            if self.contigs_loaded_in_batch == self.batch_size {
+                self.contigs_loaded_in_batch = 0;
+                return Some(Ok(builder.build()));
             }
         }
         if let Some(last) = self.current_contig.take() {
@@ -245,8 +251,25 @@ mod tests {
         let batch_loader = BatchLoader::new(reader, assembly, 1, 1);
 
         let mut num_batches = 0;
-        for _ws in batch_loader {
+        for ws in batch_loader {
             num_batches += 1;
+
+            if num_batches == 2 {
+                let workspace = ws.unwrap().get_workspace();
+                let contig_4 = workspace.get("contig_4").unwrap();
+                assert_eq!(
+                    contig_4
+                        .get_methylated_positions(
+                            &[12],
+                            methylome::Strand::Positive,
+                            methylome::ModType::SixMA
+                        )
+                        .into_iter()
+                        .map(|res| res.unwrap().clone())
+                        .collect::<Vec<MethylationCoverage>>(),
+                    vec![MethylationCoverage::new(5, 20).unwrap()]
+                );
+            }
         }
 
         assert_eq!(num_batches, 2);
