@@ -1,6 +1,6 @@
 use ahash::AHashMap;
 use anyhow::{anyhow, Context};
-use log::{debug, warn};
+use log::debug;
 use std::io::BufRead;
 
 use crate::data::{contig::Contig, GenomeWorkspace, GenomeWorkspaceBuilder};
@@ -140,112 +140,152 @@ impl<R: BufRead> Iterator for BatchLoader<R> {
 
 #[cfg(test)]
 mod tests {
-    use ahash::AHashMap;
-    use csv::ReaderBuilder;
+    use crate::data::methylation::MethylationCoverage;
+
+    use super::*;
     use std::{
         fs::File,
         io::{BufReader, Write},
     };
     use tempfile::NamedTempFile;
 
-    use crate::data::{contig::Contig, methylation::MethylationCoverage};
-
-    use super::BatchLoader;
     #[test]
-    fn test_batch_loader() -> anyhow::Result<()> {
+    fn test_batch_loading() -> anyhow::Result<()> {
         let mut pileup_file = NamedTempFile::new().unwrap();
         writeln!(
             pileup_file,
             "contig_3\t6\t1\ta\t133\t+\t0\t1\t255,0,0\t15\t0.00\t15\t123\t0\t0\t6\t0\t0"
-        )
-        .unwrap();
+        )?;
         writeln!(
             pileup_file,
             "contig_3\t8\t1\tm\t133\t+\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
-        )
-        .unwrap();
+        )?;
         writeln!(
             pileup_file,
             "contig_3\t12\t1\ta\t133\t+\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
-        )
-        .unwrap();
+        )?;
         writeln!(
             pileup_file,
             "contig_3\t7\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
-        )
-        .unwrap();
+        )?;
         writeln!(
             pileup_file,
             "contig_3\t13\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
-        )
-        .unwrap();
+        )?;
 
         let mut assembly = AHashMap::new();
         assembly.insert(
             "contig_3".to_string(),
             Contig::new("contig_3".to_string(), "TGGACGATCCCGATC".to_string()),
         );
-
         let file = File::open(pileup_file).unwrap();
         let reader = BufReader::new(file);
+
         let batch_loader = BatchLoader::new(reader, assembly, 1, 1);
 
         for ws in batch_loader {
-            let workspace = ws?;
-            let contigs_in_workspace = workspace.get_workspace();
+            let workspace = ws?.get_workspace();
+            assert_eq!(workspace.len(), 1);
 
-            assert_eq!(contigs_in_workspace.len(), 1);
             assert_eq!(
-                contigs_in_workspace.get("contig_3").unwrap().sequence,
-                "TGGACGATCCCGATC".to_string()
+                workspace
+                    .get("contig_3")
+                    .unwrap()
+                    .get_methylated_positions(
+                        &[6],
+                        methylome::Strand::Positive,
+                        methylome::ModType::SixMA
+                    )
+                    .into_iter()
+                    .map(|rec| rec.unwrap().clone())
+                    .collect::<Vec<MethylationCoverage>>(),
+                vec![MethylationCoverage::new(15, 15).unwrap()]
             );
         }
 
         Ok(())
     }
-    fn test_batch_loader_w_multi() -> anyhow::Result<()> {
+
+    #[test]
+    fn test_multi_batches() -> anyhow::Result<()> {
         let mut pileup_file = NamedTempFile::new().unwrap();
         writeln!(
             pileup_file,
             "contig_3\t6\t1\ta\t133\t+\t0\t1\t255,0,0\t15\t0.00\t15\t123\t0\t0\t6\t0\t0"
-        )
-        .unwrap();
+        )?;
         writeln!(
             pileup_file,
             "contig_3\t8\t1\tm\t133\t+\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
-        )
-        .unwrap();
+        )?;
         writeln!(
             pileup_file,
             "contig_4\t12\t1\ta\t133\t+\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
-        )
-        .unwrap();
+        )?;
         writeln!(
             pileup_file,
             "contig_4\t7\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
-        )
-        .unwrap();
+        )?;
         writeln!(
             pileup_file,
             "contig_4\t13\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
-        )
-        .unwrap();
+        )?;
 
         let mut assembly = AHashMap::new();
         assembly.insert(
             "contig_3".to_string(),
             Contig::new("contig_3".to_string(), "TGGACGATCCCGATC".to_string()),
         );
-
+        assembly.insert(
+            "contig_4".to_string(),
+            Contig::new("contig_4".to_string(), "TGGACGATCCCGATC".to_string()),
+        );
         let file = File::open(pileup_file).unwrap();
         let reader = BufReader::new(file);
+
+        let batch_loader = BatchLoader::new(reader, assembly, 1, 1);
+
+        let mut num_batches = 0;
+        for _ws in batch_loader {
+            num_batches += 1;
+        }
+
+        assert_eq!(num_batches, 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_contig_missing_error() -> anyhow::Result<()> {
+        let mut pileup_file = NamedTempFile::new().unwrap();
+        writeln!(
+            pileup_file,
+            "contig_3\t6\t1\ta\t133\t+\t0\t1\t255,0,0\t15\t0.00\t15\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_3\t8\t1\tm\t133\t+\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_4\t12\t1\ta\t133\t+\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_4\t7\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t20\t123\t0\t0\t6\t0\t0"
+        )?;
+        writeln!(
+            pileup_file,
+            "contig_4\t13\t1\ta\t133\t-\t0\t1\t255,0,0\t20\t0.00\t5\t123\t0\t0\t6\t0\t0"
+        )?;
+
+        let assembly = AHashMap::new();
+        let file = File::open(pileup_file).unwrap();
+        let reader = BufReader::new(file);
+
         let batch_loader = BatchLoader::new(reader, assembly, 2, 1);
 
         for ws in batch_loader {
-            let workspace = ws?;
-            let contigs_in_workspace = workspace.get_workspace();
-
-            assert_eq!(contigs_in_workspace.len(), 2);
+            assert!(ws.is_err());
         }
 
         Ok(())
