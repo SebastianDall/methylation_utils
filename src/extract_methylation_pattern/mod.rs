@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use batch_loader::BatchLoader;
 use humantime::format_duration;
-use indicatif::HumanDuration;
 use log::{debug, error, info};
 use std::{
     fs::{self, File},
