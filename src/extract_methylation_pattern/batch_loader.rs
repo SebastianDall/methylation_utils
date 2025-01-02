@@ -1,5 +1,6 @@
 use ahash::AHashMap;
 use anyhow::{anyhow, Context};
+use log::{debug, warn};
 use std::io::BufRead;
 
 use crate::data::{contig::Contig, GenomeWorkspace, GenomeWorkspaceBuilder};
@@ -50,7 +51,7 @@ impl<R: BufRead> Iterator for BatchLoader<R> {
     fn next(&mut self) -> Option<Self::Item> {
         let mut builder = GenomeWorkspaceBuilder::new();
 
-        while let Some(record_result) = self.reader.records().next() {
+        for record_result in self.reader.records() {
             let record = match record_result.context("Failed to read pileup record") {
                 Ok(r) => r,
                 Err(e) => return Some(Err(e)),
@@ -74,6 +75,15 @@ impl<R: BufRead> Iterator for BatchLoader<R> {
             };
 
             if Some(&contig_id) != self.current_contig_id.as_ref() {
+                debug!("Current contig id in line: {}", &contig_id);
+
+                debug!(
+                    "Current contig being added: {}",
+                    self.current_contig
+                        .as_ref()
+                        .map(|c| c.id.to_string())
+                        .unwrap_or("None".to_string())
+                );
                 if let Some(old_contig) = self.current_contig.take() {
                     if let Err(e) = builder.add_contig(old_contig) {
                         return Some(Err(e));
@@ -82,30 +92,30 @@ impl<R: BufRead> Iterator for BatchLoader<R> {
                     if self.contigs_loaded_in_batch > self.batch_size {
                         return Some(Ok(builder.build()));
                     }
-
-                    self.current_contig_id = Some(contig_id.clone());
-                    self.contigs_loaded_in_batch += 1;
-
-                    let contig_key = self.current_contig_id.as_ref().unwrap();
-                    let new_contig = match self.assembly.get(contig_key) {
-                        Some(c) => c.clone(),
-                        None => {
-                            return Some(Err(anyhow!(
-                                "Contig '{}' not found in assembly",
-                                contig_key
-                            )))
-                        }
-                    };
-                    self.current_contig = Some(new_contig);
-                }
-                let meth = match parse_to_methylation_record(contig_id, n_valid_cov, &record) {
-                    Ok(m) => m,
-                    Err(e) => return Some(Err(e)),
                 };
-                if let Some(ref mut c) = self.current_contig {
-                    if let Err(e) = c.add_methylation_record(meth) {
-                        return Some(Err(e));
+
+                self.current_contig_id = Some(contig_id.clone());
+                self.contigs_loaded_in_batch += 1;
+
+                let contig_key = self.current_contig_id.as_ref().unwrap();
+                let new_contig = match self.assembly.get(contig_key) {
+                    Some(c) => c.clone(),
+                    None => {
+                        return Some(Err(anyhow!(
+                            "Contig '{}' not found in assembly",
+                            contig_key
+                        )))
                     }
+                };
+                self.current_contig = Some(new_contig);
+            }
+            let meth = match parse_to_methylation_record(contig_id, n_valid_cov, &record) {
+                Ok(m) => m,
+                Err(e) => return Some(Err(e)),
+            };
+            if let Some(ref mut c) = self.current_contig {
+                if let Err(e) = c.add_methylation_record(meth) {
+                    return Some(Err(e));
                 }
             }
         }
