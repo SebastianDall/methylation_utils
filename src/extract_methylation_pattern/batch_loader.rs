@@ -85,11 +85,17 @@ impl<R: BufRead> Iterator for BatchLoader<R> {
                         .unwrap_or("None".to_string())
                 );
                 if let Some(old_contig) = self.current_contig.take() {
+                    debug!("Adding contig to builder");
                     if let Err(e) = builder.add_contig(old_contig) {
                         return Some(Err(e));
                     }
 
-                    if self.contigs_loaded_in_batch > self.batch_size {
+                    debug!(
+                        "Contigs loaded in batch: {}. Batch size is: {}",
+                        self.contigs_loaded_in_batch, self.batch_size
+                    );
+                    if self.contigs_loaded_in_batch == self.batch_size {
+                        self.contigs_loaded_in_batch = 0;
                         return Some(Ok(builder.build()));
                     }
                 };

@@ -1,9 +1,8 @@
 use anyhow::{Context, Result};
 use batch_loader::BatchLoader;
-use csv::{ReaderBuilder, StringRecord};
 use humantime::format_duration;
 use indicatif::HumanDuration;
-use log::{error, info};
+use log::{debug, error, info};
 use std::{
     fs::{self, File},
     io::{BufReader, BufWriter, Write},
@@ -75,16 +74,29 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
         BatchLoader::new(reader, contigs, args.batches, args.min_valid_read_coverage);
 
     let mut methylation_pattern_results: Vec<MotifMethylationDegree> = Vec::new();
+
+    let mut batch_processing_time = Instant::now();
+    let mut contigs_processed = 0;
     for ws_result in batch_loader {
         match ws_result {
             Ok(workspace) => {
+                debug!("Workspace initialized");
+                let contigs_in_batch = workspace.get_workspace().len() as u32;
                 let mut methylation_pattern = calculate_contig_read_methylation_pattern(
                     workspace,
                     motifs.clone(),
                     args.threads,
                 )?;
-
                 methylation_pattern_results.append(&mut methylation_pattern);
+
+                contigs_processed += contigs_in_batch;
+                let elapsed_batch_processing_time = batch_processing_time.elapsed();
+                info!(
+                    "Finished processing {} contigs. Processing time: {}",
+                    contigs_processed,
+                    format_duration(elapsed_batch_processing_time).to_string()
+                );
+                batch_processing_time = Instant::now();
             }
             Err(e) => {
                 error!("Error reading batch: {e}");
