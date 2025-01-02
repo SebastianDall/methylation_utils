@@ -70,8 +70,12 @@ pub fn extract_methylation_pattern(args: MethylationPatternArgs) -> Result<()> {
     let file = File::open(&args.pileup)?;
     let reader = BufReader::new(file);
 
-    let batch_loader =
-        BatchLoader::new(reader, contigs, args.batches, args.min_valid_read_coverage);
+    let batch_loader = BatchLoader::new(
+        reader,
+        contigs,
+        args.batch_size,
+        args.min_valid_read_coverage,
+    );
 
     let mut methylation_pattern_results: Vec<MotifMethylationDegree> = Vec::new();
 
