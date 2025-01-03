@@ -54,8 +54,8 @@ Options:
           Supply chain of motifs as <motif>_<mod_type>_<mod_position>. Example: '-m GATC_a_1 RGATCY_a_2'
       --min-valid-read-coverage <MIN_VALID_READ_COVERAGE>
           Minimum valid read coverage for calculating methylation. [default: 3]
-      --batches <BATCHES>
-          Number of contigs to process at a time. Higher number will use more RAM. [default: 3000]
+      --batch-size <BATCH_SIZE>
+          Number of contigs to process at a time. Higher number will use more RAM. [default: 1000]
   -h, --help
           Print help
 ```
