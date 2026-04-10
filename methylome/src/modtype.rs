@@ -10,6 +10,7 @@ use std::{fmt, str::FromStr};
 /// - `SixMA`: N6-methyladenine (6mA), represented by the pileup code `a`.
 /// - `FiveMC`: 5-methylcytosine (5mC), represented by the pileup code `m`.
 /// - `FourMC`: 4-methylcytosine (4mC), represented by the pileup code `21839`.
+/// - `FiveHmC`: 5-hydroxymethylcytosine (5hmC), represented by the pileup code `h`.
 ///
 /// # Examples
 /// ```
@@ -17,6 +18,8 @@ use std::{fmt, str::FromStr};
 ///
 /// let mod_type = ModType::SixMA;
 /// assert_eq!(mod_type.to_pileup_code(), "a");
+/// let mod_type = ModType::FiveHmC;
+/// assert_eq!(mod_type.to_pileup_code(), "h");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
 pub enum ModType {
@@ -34,6 +37,7 @@ impl ModType {
     /// - `SixMA` (6mA): `"a"`
     /// - `FiveMC` (5mC): `"m"`
     /// - `FourMC` (4mC): `"21839"`
+    /// - `FiveHmC` (5hmC): `"h"`
     ///
     /// # Examples
     /// ```
@@ -86,6 +90,7 @@ impl fmt::Display for ModType {
     /// - `6mA (a)` for `SixMA`
     /// - `5mC (m)` for `FiveMC`
     /// - `4mC (21839)` for `FourMC`
+    /// - `5hmC (h)` for `FiveHmC`
     ///
     /// # Examples
     /// ```
@@ -110,6 +115,7 @@ impl fmt::Display for ModType {
 /// - `"a"` for `SixMA` (6mA)
 /// - `"m"` for `FiveMC` (5mC)
 /// - `"21839"` for `FourMC` (4mC)
+/// - `"h"` for `FiveHmC` (5HmC)
 ///
 /// # Arguments
 /// - `mod_type`: A string slice representing the modification type.
