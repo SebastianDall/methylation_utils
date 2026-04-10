@@ -136,6 +136,7 @@ impl FromStr for ModType {
             "a" => Ok(ModType::SixMA),
             "m" => Ok(ModType::FiveMC),
             "21839" => Ok(ModType::FourMC),
+            "h" => Ok(ModType::FiveHmC),
             _ => bail!("Unsupported mod type: {}", s),
         }
     }
